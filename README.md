@@ -7,34 +7,45 @@ Now it supports:
 - [esp-idf](https://github.com/espressif/esp-idf) -> v6.0.1
 - [esp-thread-br](https://github.com/espressif/esp-thread-br) -> main
 
-**Use at your own risk** (but you can always flash back the original firmware...)
+**Use at your own risk!** (but you can always flash back the original firmware...)
 
 ## Getting started
 
 ```
-$ git clone --recursive https://github.com/epinci/esp_builder.git
-$ git submodule update --init --recursive
-
-### Install SDK environment
-$ ./install.sh
-
-# Active SDK environment
-$. ./esp-idf/export.sh
-
-### Build Host
-$ cd s20-otbr
-$ idf.py --preview set-target esp32s3
-$ idf.py build
-
-### Flash
-$ idf.py -p /dev/ttyUSB0 flash
-
-### Monitor
-$ idf.py -p /dev/ttyUSB0 monitor
-
-### Exit monitor
-Ctrl + ]
+git clone --recursive https://github.com/epinci/s20-e-otbr.git
+git submodule update --init --recursive
 ```
+
+Install SDK environment and build RCP firmware
+```
+./install.sh
+```
+
+Activate SDK environment
+```
+. ./esp-idf/export.sh
+```
+
+Build S20 firmware
+```
+cd s20-otbr
+idf.py set-target esp32s3
+idf.py build
+```
+
+If you're using WSL, check [Connect USB devices to WSL](https://learn.microsoft.com/en-us/windows/wsl/connect-usb)
+
+Flash
+```
+$ idf.py -p /dev/ttyUSB0 flash
+```
+
+Monitor
+```
+$ idf.py -p /dev/ttyUSB0 monitor
+```
+
+To exit monitor use `Ctrl + ]` or `CTRL + T, CTRL + X`
 
 - **Automated build process**
 
