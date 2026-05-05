@@ -1,11 +1,13 @@
 # GL-S20 OpenThread Border Router
 
-This is my fork from [GL OpenSDK](https://github.com/gl-inet/s20_thread_br_opensdk) implementation.
+GL's S20 is a nice and inexpensive device but firmware support is lacking behind as GL's attention is on more recent hardware.
+Luckily enough, they shared an [OpenSDK](https://github.com/gl-inet/s20_thread_br_opensdk) that I forked to upgrade things a bit.
 
-It' been upgraded to include:
+Now it supports:
 - [esp-idf](https://github.com/espressif/esp-idf) -> v6.0.1
 - [esp-thread-br](https://github.com/espressif/esp-thread-br) -> main
 
+**Use at your own risk** (but you can always flash back the original firmware...)
 
 ## Getting started
 
@@ -89,7 +91,7 @@ To install this integration, navigate to **Home Assistant > Settings > Devices &
 
 `http://<YOUR_GL-S20_IP_ADDRESS>`
 
-Replace "`<YOUR_GL-S20_IP_ADDRESS>`" with GL-S20's IP address and make sure is static
+Replace "`<YOUR_GL-S20_IP_ADDRESS>`" with GL-S20's IP address and *make sure it is static*
 
 Then click **Add Intergration** again, search for **Thread**, select it and click **FINISH**, enter **Thread** Intergrations, click **CONFIGURE** and make sure you have S20‘s Thread network under **Preferred network** line, and it contains an icon with **key+phone**. If not, do the following:
 
