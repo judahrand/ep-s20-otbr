@@ -17,7 +17,7 @@ echo alias get_idf='. $HOME/esp/esp-idf/export.sh' >> .bash_aliases
 
 sudo apt update
 sudo apt upgrade
-sudo apt-get install -y apt-transport-https ca-certificates curl gnupg wget
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg wget unzip
 
 # build env
 
@@ -38,14 +38,10 @@ curl -fsSL https://gh.io/copilot-install | bash
 	&& sudo apt update \
 	&& sudo apt install gh -y
 
-sudo apt-get update
-
 # git
 
 git config --global pull.rebase true
 git config --global rebase.autoStash true
-git config --global user.name "Edoardo Pinci"
-git config --global user.email epinci@outlook.com
 git config --global alias.clog 'log --pretty=format:"%h %s"'
 git config --global alias.co checkout
 git config --global alias.br branch
