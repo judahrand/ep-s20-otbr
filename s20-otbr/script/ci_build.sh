@@ -26,8 +26,8 @@ idf.py build
 
     cp build/rcp_fw.bin $TMP_OUTPUT_DIR/s20-ot-rcp-fw-$fw_version.bin
     cp build/ota_data_initial.bin $TMP_OUTPUT_DIR/s20-ot-ota-data-initial-$fw_version.bin
-    cp build/esp_ot_br.bin $TMP_OUTPUT_DIR/s20-ot-br-$fw_version.bin
-    cp build/esp_ot_br.elf $TMP_OUTPUT_DIR/s20-ot-br-$fw_version.elf
+    cp build/s20_otbr.bin $TMP_OUTPUT_DIR/s20-ot-br-$fw_version.bin
+    cp build/s20_otbr.elf $TMP_OUTPUT_DIR/s20-ot-br-$fw_version.elf
     cp build/web_storage.bin $TMP_OUTPUT_DIR/s20-ot-web-storage-$fw_version.bin
     cp build/bootloader/bootloader.bin $TMP_OUTPUT_DIR/s20-ot-bootloader-$fw_version.bin
     cp build/partition_table/partition-table.bin $TMP_OUTPUT_DIR/s20-ot-partition-table-$fw_version.bin
@@ -38,7 +38,7 @@ idf.py build
     idf_target=$(cat sdkconfig | grep CONFIG_IDF_TARGET= | awk -F '"' '{print $2}')
 
     cd build/
-    esptool.py --chip $idf_target merge_bin --output $TMP_OUTPUT_DIR/$combine_fw_name $(cat ./flash_args)
+    esptool --chip $idf_target merge-bin --output $TMP_OUTPUT_DIR/$combine_fw_name $(cat ./flash_args)
     cd ..
 
     # Generate list.txt
@@ -47,8 +47,8 @@ idf.py build
     for img in $(ls -d $TMP_OUTPUT_DIR/*.bin); do
         img_name=${img##*/}
         img_md5sum=$(md5sum $img | awk '{print $1}')
-        img_siez=$(stat -c %s $img)
-        echo -e "$SW_VERSION\t$img_name\t$img_md5sum\t$img_siez" >>$LIST_FILE
+        img_size=$(stat -c %s $img)
+        echo -e "$SW_VERSION\t$img_name\t$img_md5sum\t$img_size" >>$LIST_FILE
     done
 
     # Generate metadata
