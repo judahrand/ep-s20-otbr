@@ -195,7 +195,7 @@ void app_main(void)
     // #endif // CONFIG_EXTERNAL_COEX_ENABLE
 
     ESP_ERROR_CHECK(mdns_init());
-    ESP_ERROR_CHECK(mdns_hostname_set(TAG));
+    ESP_ERROR_CHECK(mdns_hostname_set("ep-s20-otbr"));
 #if CONFIG_OPENTHREAD_CLI_OTA
     esp_set_ota_server_cert((char *)server_cert_pem_start);
 #endif
