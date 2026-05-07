@@ -7,8 +7,6 @@ dependencies:
     path: ../../esp-thread-br/components/esp_rcp_update
   esp_br_http_ota:
     path: ../../esp-thread-br/components/esp_br_http_ota
-  esp_ot_br_server:
-    path: ../../esp-thread-br/components/esp_ot_br_server
   thread_border_router:
     path: ../../esp-thread-br/examples/common/thread_border_router
   ot_examples_common:

@@ -1,0 +1,168 @@
+<!--
+  SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thread Border Router - Logs</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/favicon.ico">
+</head>
+
+<body>
+    <nav class="nav" id="nav"></nav>
+    <div class="container">
+        <h1 class="page-title">System Logs</h1>
+        <p class="page-desc">Live device log output captured from the ESP-IDF logging stream.</p>
+
+        <div class="card section">
+            <div class="flex-between" style="gap:12px;align-items:flex-start;flex-wrap:wrap">
+                <div>
+                    <div class="card-header">Live Console</div>
+                    <p style="font-size:13px;color:var(--text-muted);margin:8px 0 0">
+                        The page subscribes to a live server-sent events stream.<br />
+                        If the device reboots or the in-memory log buffer wraps, older lines may be dropped.
+                    </p>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span id="logStatus" class="badge badge-warning">Connecting...</span>
+                    <button type="button" class="btn btn-secondary" id="pauseBtn" onclick="togglePause()">Pause</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearLogsView()">Clear</button>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)">
+                        <input type="checkbox" id="autoScroll" checked>
+                        Auto-scroll
+                    </label>
+                </div>
+            </div>
+            <div
+                style="margin-top:16px;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;background:#111827">
+                <pre id="logOutput"
+                    style="margin:0;padding:16px;min-height:420px;max-height:65vh;overflow:auto;color:#d1fae5;font:12px/1.45 'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;white-space:pre-wrap;word-break:break-word"></pre>
+            </div>
+        </div>
+    </div>
+    <div class="footer">Copyright &copy; 2026 Espressif Systems. All rights reserved.</div>
+
+    <script src="/static/api.js"></script>
+    <script>
+        var logCursor = 0;
+        var logPaused = false;
+        var logSource = null;
+        var maxLogChars = 120000;
+
+        function setLogStatus(text, type) {
+            var badge = document.getElementById('logStatus');
+            badge.textContent = text;
+            badge.className = 'badge ' + (type || 'badge-warning');
+        }
+
+        function isNearBottom(el) {
+            return (el.scrollHeight - el.scrollTop - el.clientHeight) < 32;
+        }
+
+        function trimLogs() {
+            var output = document.getElementById('logOutput');
+            if (output.textContent.length > maxLogChars) {
+                output.textContent = output.textContent.slice(output.textContent.length - maxLogChars);
+            }
+        }
+
+        function appendLogs(text) {
+            if (!text)
+                return;
+
+            var output = document.getElementById('logOutput');
+            var shouldScroll = document.getElementById('autoScroll').checked && isNearBottom(output);
+            output.textContent += text;
+            trimLogs();
+            if (shouldScroll) {
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function prependWrapNotice() {
+            appendLogs('\n[log buffer wrapped; showing newest retained output]\n');
+        }
+
+        function connectLogs() {
+            if (logPaused)
+                return;
+
+            if (logSource) {
+                logSource.close();
+            }
+
+            setLogStatus('Connecting...', 'badge-warning');
+            logSource = new EventSource('/logs/stream?cursor=' + encodeURIComponent(logCursor));
+
+            logSource.onopen = function () {
+                setLogStatus('Live', 'badge-success');
+            };
+
+            logSource.onmessage = function (event) {
+                var nextCursor = parseInt(event.lastEventId || String(logCursor), 10);
+                appendLogs(event.data);
+                if (!isNaN(nextCursor)) {
+                    logCursor = nextCursor;
+                }
+            };
+
+            logSource.addEventListener('log', function (event) {
+                var nextCursor = parseInt(event.lastEventId || String(logCursor), 10);
+                appendLogs(event.data);
+                if (!isNaN(nextCursor)) {
+                    logCursor = nextCursor;
+                }
+            });
+
+            logSource.addEventListener('reset', function (event) {
+                var nextCursor = parseInt(event.lastEventId || String(logCursor), 10);
+                prependWrapNotice();
+                if (!isNaN(nextCursor)) {
+                    logCursor = nextCursor;
+                }
+            });
+
+            logSource.onerror = function () {
+                if (!logPaused) {
+                    setLogStatus('Reconnecting...', 'badge-warning');
+                }
+            };
+        }
+
+        function togglePause() {
+            var button = document.getElementById('pauseBtn');
+            logPaused = !logPaused;
+            button.textContent = logPaused ? 'Resume' : 'Pause';
+            setLogStatus(logPaused ? 'Paused' : 'Live', logPaused ? 'badge-warning' : 'badge-success');
+
+            if (logSource) {
+                logSource.close();
+                logSource = null;
+            }
+
+            if (!logPaused) {
+                connectLogs();
+            }
+        }
+
+        function clearLogsView() {
+            document.getElementById('logOutput').textContent = '';
+        }
+
+        window.addEventListener('beforeunload', function () {
+            if (logSource) {
+                logSource.close();
+            }
+        });
+
+        setLogStatus('Connecting...', 'badge-warning');
+        connectLogs();
+    </script>
+</body>
+
+</html>

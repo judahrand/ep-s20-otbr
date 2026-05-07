@@ -196,7 +196,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set("ep-s20-otbr"));
-#if CONFIG_OPENTHREAD_CLI_OTA
+#if CONFIG_OPENTHREAD_CLI_OTA || CONFIG_OPENTHREAD_BR_START_WEB
     esp_set_ota_server_cert((char *)server_cert_pem_start);
 #endif
 
