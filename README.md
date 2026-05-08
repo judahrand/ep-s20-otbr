@@ -1,11 +1,19 @@
 # GL-S20 OpenThread Border Router
 
-GL's S20 is a nice and inexpensive device but firmware support is lacking behind as GL's attention is on more recent hardware.
+[GL's S20](https://www.gl-inet.com/products/gl-s20) is a nice and inexpensive device but firmware support is lacking behind as GL's attention is on more recent hardware.
 Luckily enough, they shared an [OpenSDK](https://github.com/gl-inet/s20_thread_br_opensdk) that I forked to upgrade things a bit.
 
-Now it supports:
+This is a minimalist, performance oriented firmare that supports:
+
 - [esp-idf](https://github.com/espressif/esp-idf) -> v6.0.1
+    - Thread v1.4
+    - TREL support
 - [esp-thread-br](https://github.com/espressif/esp-thread-br) -> main
+    - Used as base framework
+    - Forked basic Web UI to add logs and remote/local OTA 
+    - Implemented only wired connectivity in order to keep the radio for Thread use only
+- [s20_thread_br_opensdk](https://github.com/gl-inet/s20_thread_br_opensdk) -> main
+    - Leveraged primarily for LED support
 
 **Use at your own risk!** (but you can always flash back the original firmware...)
 
