@@ -141,9 +141,10 @@ function disableManagementPage() {
       ]
     },
     {
-      label: 'Maintenance', children: [
+      label: 'System', children: [
+        { href: '/logs.html', label: 'Logs' },
         { href: '/ota.html', label: 'OTA Update' },
-        { href: '/logs.html', label: 'Logs' }
+        { href: '/advanced.html', label: 'Advanced' }
       ]
     },
     { href: '/topology.html', label: 'Topology' },

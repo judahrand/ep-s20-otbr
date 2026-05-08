@@ -43,6 +43,10 @@
 #include "http_parser.h"
 #include "protocol_examples_common.h"
 
+#include "mbedtls/base64.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
 #include "openthread/dataset.h"
 #include "openthread/error.h"
 #include "openthread/ip6.h"
@@ -266,6 +270,10 @@ static esp_err_t esp_otbr_ota_upload_app_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_rcp_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_web_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_restart_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_restart_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_factory_reset_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_nvs_backup_get_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_nvs_restore_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ipaddr_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_add_ipaddr_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_delete_ipaddr_post_handler(httpd_req_t *req);
@@ -390,6 +398,30 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .method = HTTP_POST,
         .handler = esp_otbr_delete_ipaddr_post_handler,
         .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_RESTART_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_restart_post_handler,
+        .user_ctx = NULL,
+    },
+    {
+        .uri = ESP_OT_REST_API_FACTORY_RESET_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_factory_reset_post_handler,
+        .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_NVS_BACKUP_PATH,
+        .method = HTTP_GET,
+        .handler = esp_otbr_nvs_backup_get_handler,
+        .user_ctx = NULL,
+    },
+    {
+        .uri = ESP_OT_REST_API_NVS_RESTORE_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_nvs_restore_post_handler,
+        .user_ctx = NULL,
     },
 };
 
@@ -2137,6 +2169,540 @@ static esp_err_t esp_otbr_delete_ipaddr_post_handler(httpd_req_t *req)
     ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
 exit:
     cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
+/*-----------------------------------------------------
+ Note: Advanced management API handlers
+-----------------------------------------------------*/
+
+static esp_err_t esp_otbr_restart_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *error = cJSON_CreateNumber((double)ESP_OK);
+    cJSON *result = cJSON_CreateString("accepted");
+    cJSON *message = cJSON_CreateString("The device will restart shortly.");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_FALSE(response, ESP_FAIL, exit, WEB_TAG, "Failed to build restart response");
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+
+    if (xTaskCreate(ota_restart_task, "br_restart", OTA_RESTART_TASK_STACK_SIZE, NULL, OTA_TASK_PRIORITY,
+                    NULL) != pdPASS)
+    {
+        esp_restart();
+    }
+
+exit:
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_factory_reset_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *request = NULL;
+    cJSON *error = NULL;
+    cJSON *result = NULL;
+    cJSON *message = NULL;
+    cJSON *response = NULL;
+    char *http_status = "200 OK";
+
+    request = httpd_request_convert2_json(req, cJSON_Object);
+    if (!request)
+    {
+        http_status = HTTPD_400;
+        error = cJSON_CreateNumber((double)ESP_ERR_INVALID_ARG);
+        result = cJSON_CreateString("invalid_request");
+        message = cJSON_CreateString("Could not parse request body.");
+        goto respond;
+    }
+
+    cJSON *confirm = cJSON_GetObjectItemCaseSensitive(request, "confirm");
+    if (!cJSON_IsString(confirm) || strcmp(confirm->valuestring, "FACTORY_RESET") != 0)
+    {
+        http_status = HTTPD_400;
+        error = cJSON_CreateNumber((double)ESP_ERR_INVALID_ARG);
+        result = cJSON_CreateString("invalid_confirmation");
+        message = cJSON_CreateString("Send {\"confirm\":\"FACTORY_RESET\"} to proceed.");
+        goto respond;
+    }
+
+    esp_err_t erase_ret = nvs_flash_erase();
+    if (erase_ret != ESP_OK)
+    {
+        http_status = HTTPD_500;
+        error = cJSON_CreateNumber((double)erase_ret);
+        result = cJSON_CreateString("erase_failed");
+        message = cJSON_CreateString("Failed to erase NVS partition.");
+        goto respond;
+    }
+
+    error = cJSON_CreateNumber((double)ESP_OK);
+    result = cJSON_CreateString("accepted");
+    message = cJSON_CreateString("NVS erased. The device will restart shortly.");
+
+respond:
+    httpd_resp_set_status(req, http_status);
+    response = pack_response(error, result, message);
+    ESP_GOTO_ON_FALSE(response, ESP_FAIL, exit, WEB_TAG, "Failed to build factory reset response");
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+
+    if (strcmp(http_status, "200 OK") == 0)
+    {
+        if (xTaskCreate(ota_restart_task, "br_factory_rst", OTA_RESTART_TASK_STACK_SIZE, NULL, OTA_TASK_PRIORITY,
+                        NULL) != pdPASS)
+        {
+            esp_restart();
+        }
+    }
+
+exit:
+    cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
+/* Maximum size of a single base64-encoded NVS blob (64 KB blob → ~88 KB b64) */
+#define NVS_BACKUP_B64_MAX (88 * 1024)
+/* Maximum raw blob size we are willing to encode */
+#define NVS_BACKUP_BLOB_MAX (64 * 1024)
+
+static esp_err_t esp_otbr_nvs_backup_get_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    nvs_iterator_t it = NULL;
+    nvs_handle_t ns_handle = 0;
+    bool ns_open = false;
+    uint8_t *blob_buf = NULL;
+    unsigned char *b64_buf = NULL;
+    cJSON *root = NULL;
+    cJSON *entries = NULL;
+
+    root = cJSON_CreateObject();
+    ESP_GOTO_ON_FALSE(root, ESP_ERR_NO_MEM, exit_no_root, WEB_TAG, "OOM building NVS backup root");
+    cJSON_AddNumberToObject(root, "version", 1);
+    cJSON_AddStringToObject(root, "partition", "nvs");
+    entries = cJSON_AddObjectToObject(root, "entries");
+    ESP_GOTO_ON_FALSE(entries, ESP_ERR_NO_MEM, exit, WEB_TAG, "OOM building NVS backup entries");
+
+    blob_buf = malloc(NVS_BACKUP_BLOB_MAX);
+    b64_buf = malloc(NVS_BACKUP_B64_MAX);
+    if (!blob_buf || !b64_buf)
+    {
+        ret = ESP_ERR_NO_MEM;
+        goto exit;
+    }
+
+    esp_err_t it_ret = nvs_entry_find("nvs", NULL, NVS_TYPE_ANY, &it);
+    while (it_ret == ESP_OK)
+    {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+
+        /* Get or create namespace object in JSON */
+        cJSON *ns_obj = cJSON_GetObjectItemCaseSensitive(entries, info.namespace_name);
+        if (!ns_obj)
+        {
+            ns_obj = cJSON_AddObjectToObject(entries, info.namespace_name);
+        }
+
+        /* Open namespace handle if not already open for this namespace */
+        if (!ns_open || (ns_open && ns_handle &&
+                         strcmp(cJSON_GetObjectItemCaseSensitive(root, "_cur_ns") ? cJSON_GetObjectItemCaseSensitive(root, "_cur_ns")->valuestring : "", info.namespace_name) != 0))
+        {
+            if (ns_open)
+            {
+                nvs_close(ns_handle);
+                ns_open = false;
+            }
+            if (nvs_open(info.namespace_name, NVS_READONLY, &ns_handle) == ESP_OK)
+            {
+                ns_open = true;
+            }
+        }
+
+        if (ns_obj && ns_open)
+        {
+            cJSON *entry_obj = cJSON_CreateObject();
+            bool entry_ok = false;
+
+            switch (info.type)
+            {
+            case NVS_TYPE_U8:
+            {
+                uint8_t v = 0;
+                if (nvs_get_u8(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "u8");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_I8:
+            {
+                int8_t v = 0;
+                if (nvs_get_i8(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "i8");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_U16:
+            {
+                uint16_t v = 0;
+                if (nvs_get_u16(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "u16");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_I16:
+            {
+                int16_t v = 0;
+                if (nvs_get_i16(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "i16");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_U32:
+            {
+                uint32_t v = 0;
+                if (nvs_get_u32(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "u32");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_I32:
+            {
+                int32_t v = 0;
+                if (nvs_get_i32(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    cJSON_AddStringToObject(entry_obj, "type", "i32");
+                    cJSON_AddNumberToObject(entry_obj, "value", (double)v);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_U64:
+            {
+                uint64_t v = 0;
+                if (nvs_get_u64(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    /* JSON numbers lose precision for large u64 values; store as string */
+                    char num_str[24];
+                    snprintf(num_str, sizeof(num_str), "%llu", (unsigned long long)v);
+                    cJSON_AddStringToObject(entry_obj, "type", "u64");
+                    cJSON_AddStringToObject(entry_obj, "value", num_str);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_I64:
+            {
+                int64_t v = 0;
+                if (nvs_get_i64(ns_handle, info.key, &v) == ESP_OK)
+                {
+                    char num_str[24];
+                    snprintf(num_str, sizeof(num_str), "%lld", (long long)v);
+                    cJSON_AddStringToObject(entry_obj, "type", "i64");
+                    cJSON_AddStringToObject(entry_obj, "value", num_str);
+                    entry_ok = true;
+                }
+                break;
+            }
+            case NVS_TYPE_STR:
+            {
+                size_t str_len = 0;
+                if (nvs_get_str(ns_handle, info.key, NULL, &str_len) == ESP_OK && str_len > 0 &&
+                    str_len <= NVS_BACKUP_BLOB_MAX)
+                {
+                    if (nvs_get_str(ns_handle, info.key, (char *)blob_buf, &str_len) == ESP_OK)
+                    {
+                        cJSON_AddStringToObject(entry_obj, "type", "str");
+                        cJSON_AddStringToObject(entry_obj, "value", (char *)blob_buf);
+                        entry_ok = true;
+                    }
+                }
+                break;
+            }
+            case NVS_TYPE_BLOB:
+            {
+                size_t blob_len = 0;
+                if (nvs_get_blob(ns_handle, info.key, NULL, &blob_len) == ESP_OK && blob_len > 0 &&
+                    blob_len <= NVS_BACKUP_BLOB_MAX)
+                {
+                    if (nvs_get_blob(ns_handle, info.key, blob_buf, &blob_len) == ESP_OK)
+                    {
+                        size_t b64_len = 0;
+                        int b64_ret = mbedtls_base64_encode(b64_buf, NVS_BACKUP_B64_MAX, &b64_len, blob_buf, blob_len);
+                        if (b64_ret == 0 && b64_len > 0)
+                        {
+                            b64_buf[b64_len] = '\0';
+                            cJSON_AddStringToObject(entry_obj, "type", "blob");
+                            cJSON_AddStringToObject(entry_obj, "value", (char *)b64_buf);
+                            entry_ok = true;
+                        }
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+            }
+
+            if (entry_ok)
+            {
+                cJSON_AddItemToObject(ns_obj, info.key, entry_obj);
+            }
+            else
+            {
+                cJSON_Delete(entry_obj);
+            }
+        }
+
+        it_ret = nvs_entry_next(&it);
+    }
+
+    if (ns_open)
+    {
+        nvs_close(ns_handle);
+        ns_open = false;
+    }
+    nvs_release_iterator(it);
+
+    {
+        char *json_str = cJSON_PrintUnformatted(root);
+        ESP_GOTO_ON_FALSE(json_str, ESP_ERR_NO_MEM, exit, WEB_TAG, "OOM serialising NVS backup");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"nvs_backup.json\"");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        esp_err_t send_ret = httpd_resp_sendstr(req, json_str);
+        cJSON_free(json_str);
+        ESP_GOTO_ON_ERROR(send_ret, exit, WEB_TAG, "Failed to send NVS backup response");
+    }
+
+exit:
+    if (ns_open)
+    {
+        nvs_close(ns_handle);
+    }
+    free(blob_buf);
+    free(b64_buf);
+    cJSON_Delete(root);
+    return ret;
+
+exit_no_root:
+    return ret;
+}
+
+static esp_err_t esp_otbr_nvs_restore_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    char *body = NULL;
+    cJSON *root = NULL;
+    cJSON *entries = NULL;
+    char *http_status = "200 OK";
+    cJSON *error = NULL;
+    cJSON *result = NULL;
+    cJSON *message = NULL;
+    cJSON *response = NULL;
+
+    if (req->content_len == 0 || req->content_len > (512 * 1024))
+    {
+        http_status = HTTPD_400;
+        error = cJSON_CreateNumber((double)ESP_ERR_INVALID_ARG);
+        result = cJSON_CreateString("invalid_request");
+        message = cJSON_CreateString("Request body is empty or too large.");
+        goto respond;
+    }
+
+    body = malloc(req->content_len + 1);
+    if (!body)
+    {
+        http_status = HTTPD_500;
+        error = cJSON_CreateNumber((double)ESP_ERR_NO_MEM);
+        result = cJSON_CreateString("oom");
+        message = cJSON_CreateString("Not enough memory to read backup.");
+        goto respond;
+    }
+
+    {
+        int received = 0;
+        int total = 0;
+        while (total < (int)req->content_len)
+        {
+            received = httpd_req_recv(req, body + total, req->content_len - total);
+            if (received == HTTPD_SOCK_ERR_TIMEOUT)
+            {
+                continue;
+            }
+            if (received <= 0)
+            {
+                http_status = HTTPD_500;
+                error = cJSON_CreateNumber((double)ESP_FAIL);
+                result = cJSON_CreateString("receive_error");
+                message = cJSON_CreateString("Failed to receive request body.");
+                goto respond;
+            }
+            total += received;
+        }
+        body[total] = '\0';
+    }
+
+    root = cJSON_Parse(body);
+    if (!root)
+    {
+        http_status = HTTPD_400;
+        error = cJSON_CreateNumber((double)ESP_ERR_INVALID_ARG);
+        result = cJSON_CreateString("parse_error");
+        message = cJSON_CreateString("Could not parse backup JSON.");
+        goto respond;
+    }
+
+    entries = cJSON_GetObjectItemCaseSensitive(root, "entries");
+    if (!cJSON_IsObject(entries))
+    {
+        http_status = HTTPD_400;
+        error = cJSON_CreateNumber((double)ESP_ERR_INVALID_ARG);
+        result = cJSON_CreateString("invalid_format");
+        message = cJSON_CreateString("Backup JSON is missing \"entries\" object.");
+        goto respond;
+    }
+
+    /* Iterate namespaces */
+    cJSON *ns_item = NULL;
+    cJSON_ArrayForEach(ns_item, entries)
+    {
+        const char *ns_name = ns_item->string;
+        if (!ns_name || !cJSON_IsObject(ns_item))
+        {
+            continue;
+        }
+
+        nvs_handle_t ns_handle = 0;
+        if (nvs_open(ns_name, NVS_READWRITE, &ns_handle) != ESP_OK)
+        {
+            ESP_LOGW(WEB_TAG, "NVS restore: could not open namespace '%s', skipping", ns_name);
+            continue;
+        }
+
+        cJSON *key_item = NULL;
+        cJSON_ArrayForEach(key_item, ns_item)
+        {
+            const char *key = key_item->string;
+            if (!key || !cJSON_IsObject(key_item))
+            {
+                continue;
+            }
+
+            cJSON *type_j = cJSON_GetObjectItemCaseSensitive(key_item, "type");
+            cJSON *value_j = cJSON_GetObjectItemCaseSensitive(key_item, "value");
+            if (!cJSON_IsString(type_j) || !value_j)
+            {
+                continue;
+            }
+
+            const char *type = type_j->valuestring;
+            esp_err_t set_ret = ESP_OK;
+
+            if (strcmp(type, "u8") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_u8(ns_handle, key, (uint8_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "i8") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_i8(ns_handle, key, (int8_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "u16") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_u16(ns_handle, key, (uint16_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "i16") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_i16(ns_handle, key, (int16_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "u32") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_u32(ns_handle, key, (uint32_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "i32") == 0 && cJSON_IsNumber(value_j))
+            {
+                set_ret = nvs_set_i32(ns_handle, key, (int32_t)value_j->valuedouble);
+            }
+            else if (strcmp(type, "u64") == 0 && cJSON_IsString(value_j))
+            {
+                uint64_t v = (uint64_t)strtoull(value_j->valuestring, NULL, 10);
+                set_ret = nvs_set_u64(ns_handle, key, v);
+            }
+            else if (strcmp(type, "i64") == 0 && cJSON_IsString(value_j))
+            {
+                int64_t v = (int64_t)strtoll(value_j->valuestring, NULL, 10);
+                set_ret = nvs_set_i64(ns_handle, key, v);
+            }
+            else if (strcmp(type, "str") == 0 && cJSON_IsString(value_j))
+            {
+                set_ret = nvs_set_str(ns_handle, key, value_j->valuestring);
+            }
+            else if (strcmp(type, "blob") == 0 && cJSON_IsString(value_j))
+            {
+                const char *b64 = value_j->valuestring;
+                size_t b64_len = strlen(b64);
+                size_t decoded_len = 0;
+                /* mbedtls_base64_decode with NULL output gives required size */
+                int b64_ret = mbedtls_base64_decode(NULL, 0, &decoded_len,
+                                                    (const unsigned char *)b64, b64_len);
+                /* b64_ret == MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL is expected when dest is NULL */
+                if (decoded_len > 0 && decoded_len <= NVS_BACKUP_BLOB_MAX)
+                {
+                    uint8_t *blob = malloc(decoded_len);
+                    if (blob)
+                    {
+                        b64_ret = mbedtls_base64_decode(blob, decoded_len, &decoded_len,
+                                                        (const unsigned char *)b64, b64_len);
+                        if (b64_ret == 0)
+                        {
+                            set_ret = nvs_set_blob(ns_handle, key, blob, decoded_len);
+                        }
+                        free(blob);
+                    }
+                }
+            }
+
+            if (set_ret != ESP_OK)
+            {
+                ESP_LOGW(WEB_TAG, "NVS restore: failed to set %s/%s: %s", ns_name, key, esp_err_to_name(set_ret));
+            }
+        }
+
+        nvs_commit(ns_handle);
+        nvs_close(ns_handle);
+    }
+
+    error = cJSON_CreateNumber((double)ESP_OK);
+    result = cJSON_CreateString("restored");
+    message = cJSON_CreateString("NVS settings restored successfully. Restart the device for changes to take effect.");
+
+respond:
+    httpd_resp_set_status(req, http_status);
+    response = pack_response(error, result, message);
+    ESP_GOTO_ON_FALSE(response, ESP_FAIL, exit, WEB_TAG, "Failed to build NVS restore response");
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+
+exit:
+    free(body);
+    cJSON_Delete(root);
     cJSON_Delete(response);
     return ret;
 }

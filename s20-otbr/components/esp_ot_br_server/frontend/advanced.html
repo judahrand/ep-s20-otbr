@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thread Border Router - Advanced</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/favicon.ico">
+    <style>
+        .danger-zone {
+            border: 1px solid #e53935;
+        }
+
+        .danger-zone .card-header {
+            background: #e53935;
+            color: #fff;
+        }
+
+        .confirm-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        #resetConfirmBox {
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            background: #fff3f3;
+            border: 1px solid #f5c6c6;
+            border-radius: 6px;
+        }
+
+        #resetConfirmBox p {
+            margin: 0 0 10px;
+            font-size: 13px;
+            color: #b71c1c;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="nav" id="nav"></nav>
+    <div class="container">
+        <h1 class="page-title">Advanced</h1>
+        <p class="page-desc">System management options. Use with care — some actions are irreversible without a backup.
+        </p>
+
+        <!-- ── Restart ─────────────────────────────────────────────── -->
+        <div class="card section">
+            <div class="card-header">Restart</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+                Gracefully restart the border router. The web UI will become temporarily unavailable while the device
+                reboots. All Thread network settings are preserved.
+            </p>
+            <div class="flex-between">
+                <button class="btn btn-primary" id="restartBtn" onclick="doRestart()">Restart Now</button>
+                <span id="restartStatus" style="font-size:13px"></span>
+            </div>
+        </div>
+
+        <!-- ── NVS Backup / Restore ──────────────────────────────────── -->
+        <div class="card section">
+            <div class="card-header">NVS Backup &amp; Restore</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+                Download a JSON snapshot of all NVS key-value entries (including the OpenThread dataset) or restore
+                a previously saved snapshot.
+            </p>
+
+            <!-- Backup sub-section -->
+            <div style="margin-bottom:20px">
+                <div style="font-weight:600;font-size:14px;margin-bottom:6px">Backup</div>
+                <div class="flex-between">
+                    <button class="btn btn-primary" id="backupBtn" onclick="doBackup()">Download Backup</button>
+                    <span id="backupStatus" style="font-size:13px"></span>
+                </div>
+            </div>
+
+            <!-- Restore sub-section -->
+            <div>
+                <div style="font-weight:600;font-size:14px;margin-bottom:6px">Restore</div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+                    Select a <code>.json</code> backup file produced by this device. Existing keys will be
+                    overwritten; keys not present in the backup are left untouched.<br />
+                    Restoring does not restart the device automatically: restart manually for changes to take effect.
+                </p>
+                <div class="form-group">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                        <input class="form-input" id="restoreFile" type="file" accept=".json,application/json"
+                            style="flex:1" onchange="onRestoreFileChange()">
+                        <button class="btn btn-primary" id="restoreBtn" onclick="doRestore()" disabled>Restore</button>
+                        <span id="restoreStatus" style="font-size:12px;white-space:nowrap"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Factory Reset ─────────────────────────────────────────── -->
+        <div class="card section danger-zone">
+            <div class="card-header">Factory Reset</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+                Erase all NVS settings, including the Thread dataset and any stored credentials. The device will
+                restart after the erase. <br />
+                <strong>This cannot be undone</strong> — download a backup first if you want to restore your settings
+                later.
+            </p>
+            <button class="btn" style="background:#e53935;color:#fff" id="resetTriggerBtn"
+                onclick="showResetConfirm()">Reset to
+                Factory Defaults…</button>
+
+            <div id="resetConfirmBox">
+                <p>Type <strong>RESET</strong> in the box below and click "Confirm Reset" to proceed.</p>
+                <div class="confirm-row">
+                    <input class="form-input" id="resetConfirmInput" type="text" placeholder="RESET"
+                        style="max-width:140px" oninput="onResetInputChange()">
+                    <button class="btn" style="background:#e53935;color:#fff" id="resetConfirmBtn"
+                        onclick="doFactoryReset()" disabled>Confirm Reset</button>
+                    <button class="btn btn-secondary" onclick="hideResetConfirm()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/api.js"></script>
+    <script>
+        'use strict';
+
+        /* ── Restart ──────────────────────────────────────────────────── */
+        function doRestart() {
+            var btn = document.getElementById('restartBtn');
+            var status = document.getElementById('restartStatus');
+            btn.disabled = true;
+            status.textContent = 'Sending restart command…';
+
+            fetch('/restart', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error === 0) {
+                        showToast('Restarting… the page will reload in a few seconds.', 'info');
+                        status.textContent = 'Restarting…';
+                        setTimeout(function () { location.reload(); }, 8000);
+                    } else {
+                        showToast('Restart failed: ' + escapeHtml(data.message || 'unknown error'), 'error');
+                        status.textContent = '';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(function () {
+                    /* A network error here likely means the device already restarted */
+                    showToast('Device is restarting. The page will reload shortly.', 'info');
+                    status.textContent = 'Restarting…';
+                    setTimeout(function () { location.reload(); }, 8000);
+                });
+        }
+
+        /* ── Factory Reset ────────────────────────────────────────────── */
+        function showResetConfirm() {
+            document.getElementById('resetConfirmBox').style.display = 'block';
+            document.getElementById('resetTriggerBtn').style.display = 'none';
+            document.getElementById('resetConfirmInput').value = '';
+            document.getElementById('resetConfirmBtn').disabled = true;
+            document.getElementById('resetConfirmInput').focus();
+        }
+
+        function hideResetConfirm() {
+            document.getElementById('resetConfirmBox').style.display = 'none';
+            document.getElementById('resetTriggerBtn').style.display = '';
+        }
+
+        function onResetInputChange() {
+            var val = document.getElementById('resetConfirmInput').value;
+            document.getElementById('resetConfirmBtn').disabled = (val !== 'RESET');
+        }
+
+        function doFactoryReset() {
+            var confirmBtn = document.getElementById('resetConfirmBtn');
+            var triggerBtn = document.getElementById('resetTriggerBtn');
+            confirmBtn.disabled = true;
+
+            fetch('/factory_reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: 'FACTORY_RESET' })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error === 0) {
+                        showToast('NVS erased. Device is restarting…', 'info');
+                        document.getElementById('resetConfirmBox').style.display = 'none';
+                        /* Disable all buttons on the page to prevent further actions */
+                        var btns = document.querySelectorAll('button');
+                        for (var i = 0; i < btns.length; i++) { btns[i].disabled = true; }
+                        setTimeout(function () { location.reload(); }, 10000);
+                    } else {
+                        showToast('Factory reset failed: ' + escapeHtml(data.message || 'unknown error'), 'error');
+                        confirmBtn.disabled = false;
+                    }
+                })
+                .catch(function () {
+                    showToast('Device is restarting after factory reset.', 'info');
+                    setTimeout(function () { location.reload(); }, 10000);
+                });
+        }
+
+        /* ── NVS Backup ───────────────────────────────────────────────── */
+        function doBackup() {
+            var btn = document.getElementById('backupBtn');
+            var status = document.getElementById('backupStatus');
+            btn.disabled = true;
+            status.textContent = 'Downloading…';
+
+            fetch('/nvs/backup')
+                .then(function (r) {
+                    if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                    return r.blob();
+                })
+                .then(function (blob) {
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nvs_backup.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    status.textContent = 'Downloaded.';
+                    showToast('NVS backup downloaded.', 'success');
+                    btn.disabled = false;
+                })
+                .catch(function (e) {
+                    showToast('Backup failed: ' + escapeHtml(String(e)), 'error');
+                    status.textContent = '';
+                    btn.disabled = false;
+                });
+        }
+
+        /* ── NVS Restore ──────────────────────────────────────────────── */
+        function onRestoreFileChange() {
+            var file = document.getElementById('restoreFile').files[0];
+            document.getElementById('restoreBtn').disabled = !file;
+            document.getElementById('restoreStatus').textContent = '';
+        }
+
+        function doRestore() {
+            var file = document.getElementById('restoreFile').files[0];
+            if (!file) { return; }
+
+            var btn = document.getElementById('restoreBtn');
+            var status = document.getElementById('restoreStatus');
+            btn.disabled = true;
+            status.textContent = 'Reading file…';
+
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                status.textContent = 'Restoring…';
+                fetch('/nvs/restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: e.target.result
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.error === 0) {
+                            showToast('NVS settings restored. Restart the device for changes to take effect.', 'success');
+                            status.textContent = 'Restored.';
+                        } else {
+                            showToast('Restore failed: ' + escapeHtml(data.message || 'unknown error'), 'error');
+                            status.textContent = 'Failed.';
+                        }
+                        btn.disabled = false;
+                    })
+                    .catch(function (e) {
+                        showToast('Restore failed: ' + escapeHtml(String(e)), 'error');
+                        status.textContent = 'Failed.';
+                        btn.disabled = false;
+                    });
+            };
+            reader.onerror = function () {
+                showToast('Failed to read the selected file.', 'error');
+                status.textContent = '';
+                btn.disabled = false;
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+
+</html>
