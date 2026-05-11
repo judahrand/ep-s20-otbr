@@ -436,10 +436,19 @@ static esp_err_t get_openthread_network_properties(otInstance *ins, thread_netwo
 static esp_err_t get_openthread_information_properties(otInstance *ins, thread_information_status_t *ot_info)
 {
     ESP_RETURN_ON_FALSE(ins && ot_info, ESP_FAIL, API_TAG, "Invalid instance or openthread information");
-    ot_info->version = (char *)otGetVersionString(); /* 1. version */
-    ot_info->version_api = OPENTHREAD_API_VERSION;   /* 2. version_api */
-    ot_info->role = otThreadGetDeviceRole(ins);      /* 3. role */
-    otThreadGetPskc(ins, &ot_info->PSKc);            /* 4. PSKc */
+    static char s_ot_version[128];
+    strncpy(s_ot_version, otGetVersionString(), sizeof(s_ot_version) - 1);
+    s_ot_version[sizeof(s_ot_version) - 1] = '\0';
+    char *semi = strchr(s_ot_version, ';');
+    if (semi)
+    {
+        *semi = '\0';
+    }
+    ot_info->version = s_ot_version;                /* 1. version */
+    ot_info->version_api = OPENTHREAD_API_VERSION;  /* 2. version_api */
+    ot_info->thread_version = otThreadGetVersion(); /* 3. thread_version */
+    ot_info->role = otThreadGetDeviceRole(ins);     /* 4. role */
+    otThreadGetPskc(ins, &ot_info->PSKc);           /* 5. PSKc */
     return ESP_OK;
 }
 
@@ -450,8 +459,15 @@ static esp_err_t get_openthread_rcp_properties(otInstance *ins, thread_rcp_statu
     rcp->channel = otLinkGetChannel(ins);                    /* 1. channel */
     error = otPlatRadioGetTransmitPower(ins, &rcp->txpower); /* 2. txPower */
     otLinkGetFactoryAssignedIeeeEui64(ins, &rcp->EUI64);     /* 3. eui */
-    rcp->version = (char *)otPlatRadioGetVersionString(ins); /* 4. rcp Version */
-
+    static char s_rcp_version[128];
+    strncpy(s_rcp_version, otPlatRadioGetVersionString(ins), sizeof(s_rcp_version) - 1);
+    s_rcp_version[sizeof(s_rcp_version) - 1] = '\0';
+    char *semi = strchr(s_rcp_version, ';');
+    if (semi)
+    {
+        *semi = '\0';
+    }
+    rcp->version = s_rcp_version; /* 4. rcp Version */
     return !error ? ESP_OK : ESP_FAIL;
 }
 

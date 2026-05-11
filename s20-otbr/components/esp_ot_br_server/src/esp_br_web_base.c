@@ -127,6 +127,8 @@ cJSON *otbr_properties_struct_convert2_json(openthread_properties_t *properties)
     cJSON_AddStringToObject(root, "OpenThread:Version", properties->information.version);
     sprintf(format, "%d", properties->information.version_api);
     cJSON_AddStringToObject(root, "OpenThread:Version API", format);
+    sprintf(format, "%u", properties->information.thread_version);
+    cJSON_AddStringToObject(root, "OpenThread:ThreadVersion", format);
     cJSON_AddStringToObject(root, "Thread:Role", otThreadDeviceRoleToString(properties->information.role));
     hex_to_string(properties->information.PSKc.m8, format, sizeof(otPskc));
     cJSON_AddStringToObject(root, "OpenThread:PSKc", format);

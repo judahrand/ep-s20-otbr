@@ -76,8 +76,8 @@
                         <span class="info-value" id="p-heap">-</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">OT Version</span>
-                        <span class="info-value" id="p-otver">-</span>
+                        <span class="info-label">Thread Version</span>
+                        <span class="info-value" id="p-tver">-</span>
                     </div>
                 </div>
                 <div class="card">
@@ -155,7 +155,8 @@
             document.getElementById('p-partid').textContent = r['Network:PartitionID'] || '-';
             document.getElementById('p-uptime').textContent = r['System:Uptime'] || '-';
             document.getElementById('p-heap').textContent = r['System:FreeHeap'] || '-';
-            document.getElementById('p-otver').textContent = r['OpenThread:Version'] || '-';
+            var tvMap = {'2':'1.1','3':'1.2','4':'1.3','5':'1.4'};
+            document.getElementById('p-tver').textContent = tvMap[r['OpenThread:ThreadVersion']] || r['OpenThread:ThreadVersion'] || '-';
             document.getElementById('p-eui64').textContent = r['RCP:EUI64'] || '-';
             document.getElementById('p-baid').textContent = r['Network:BorderAgentID'] || '-';
             setSecret('p-pskc', 'btn-reveal-pskc', r['OpenThread:PSKc'] || '');
