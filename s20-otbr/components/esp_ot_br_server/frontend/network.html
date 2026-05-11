@@ -30,6 +30,25 @@
             </div>
         </div>
 
+        <!-- Leader Management Section -->
+        <div class="card section">
+            <div class="card-header">Leader Management</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Configure the local leader weight used
+                during leader election, or request this device to become the Thread leader.</p>
+            <div class="form-row" style="align-items:flex-end">
+                <div class="form-group" style="flex:1;margin-bottom:0">
+                    <label class="form-label">Leader Weight (0–255)</label>
+                    <input class="form-input" id="leaderWeightInput" type="number" min="0" max="255" value="64">
+                </div>
+                <div style="margin-left:10px;margin-bottom:0">
+                    <button class="btn btn-primary" id="setWeightBtn" onclick="setLeaderWeight()">Set Weight</button>
+                    <button class="btn btn-primary" id="becomeLeaderBtn" onclick="becomeLeader()">Assume
+                        Leadership</button>
+                </div>
+            </div>
+            <div id="leaderStatus" style="font-size:13px;margin-top:10px"></div>
+        </div>
+
         <!-- Scan Section -->
         <div class="card section">
             <div class="flex-between mb-16">
@@ -416,6 +435,11 @@
         document.addEventListener('DOMContentLoaded', function () {
             loadThreadState();
             startMeshPolling();
+            apiGet('/leader/weight').then(function (res) {
+                if (res && !res.error && typeof res.result === 'number') {
+                    document.getElementById('leaderWeightInput').value = res.result;
+                }
+            }).catch(function () { /* ignore — keep default */ });
         });
 
         var _formPollTimer = null;
@@ -446,6 +470,58 @@
                     }
                 }).catch(function () { /* ignore transient errors */ });
             }, 2000);
+        }
+
+        /* ──── Leader Management ──── */
+        function setLeaderWeight() {
+            var input = document.getElementById('leaderWeightInput');
+            var status = document.getElementById('leaderStatus');
+            var weight = parseInt(input.value, 10);
+            if (isNaN(weight) || weight < 0 || weight > 255) {
+                status.textContent = 'Invalid weight — must be 0–255';
+                status.style.color = 'var(--danger)';
+                return;
+            }
+            var btn = document.getElementById('setWeightBtn');
+            btn.disabled = true;
+            status.textContent = 'Setting weight...';
+            status.style.color = 'var(--text-muted)';
+            apiPut('/leader/weight', { weight: weight }).then(function (res) {
+                btn.disabled = false;
+                if (res && !res.error) {
+                    status.textContent = 'Leader weight set to ' + weight;
+                    status.style.color = 'var(--success)';
+                } else {
+                    status.textContent = 'Failed: ' + (res && res.message ? res.message : 'Unknown error');
+                    status.style.color = 'var(--danger)';
+                }
+            }).catch(function () {
+                btn.disabled = false;
+                status.textContent = 'Network error';
+                status.style.color = 'var(--danger)';
+            });
+        }
+
+        function becomeLeader() {
+            var status = document.getElementById('leaderStatus');
+            var btn = document.getElementById('becomeLeaderBtn');
+            btn.disabled = true;
+            status.textContent = 'Requesting leadership...';
+            status.style.color = 'var(--text-muted)';
+            apiPost('/leader/become', {}).then(function (res) {
+                btn.disabled = false;
+                if (res && !res.error) {
+                    status.textContent = 'Leadership request accepted';
+                    status.style.color = 'var(--success)';
+                } else {
+                    status.textContent = 'Failed: ' + (res && res.message ? res.message : 'Unknown error');
+                    status.style.color = 'var(--danger)';
+                }
+            }).catch(function () {
+                btn.disabled = false;
+                status.textContent = 'Network error';
+                status.style.color = 'var(--danger)';
+            });
         }
     </script>
 </body>

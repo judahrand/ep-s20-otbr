@@ -277,6 +277,9 @@ static esp_err_t esp_otbr_nvs_restore_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ipaddr_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_add_ipaddr_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_delete_ipaddr_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_leader_weight_get_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_leader_weight_put_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_become_leader_post_handler(httpd_req_t *req);
 
 static httpd_uri_t s_web_gui_handlers[] = {
     {
@@ -398,6 +401,24 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .method = HTTP_POST,
         .handler = esp_otbr_delete_ipaddr_post_handler,
         .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_LEADER_WEIGHT_PATH,
+        .method = HTTP_GET,
+        .handler = esp_otbr_leader_weight_get_handler,
+        .user_ctx = NULL,
+    },
+    {
+        .uri = ESP_OT_REST_API_LEADER_WEIGHT_PATH,
+        .method = HTTP_PUT,
+        .handler = esp_otbr_leader_weight_put_handler,
+        .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_BECOME_LEADER_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_become_leader_post_handler,
+        .user_ctx = NULL,
     },
     {
         .uri = ESP_OT_REST_API_RESTART_PATH,
@@ -2176,6 +2197,69 @@ exit:
 /*-----------------------------------------------------
  Note: Advanced management API handlers
 -----------------------------------------------------*/
+
+static esp_err_t esp_otbr_leader_weight_get_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    uint8_t weight = handle_ot_leader_weight_get_request();
+    cJSON *error = cJSON_CreateNumber((double)OT_ERROR_NONE);
+    cJSON *result = cJSON_CreateNumber((double)weight);
+    cJSON *message = cJSON_CreateString("ok");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+exit:
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_leader_weight_put_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *request = NULL;
+    cJSON *response = NULL;
+    cJSON *error = NULL;
+    cJSON *result = NULL;
+    cJSON *message = NULL;
+
+    request = httpd_request_convert2_json(req, cJSON_Object);
+    if (!request) {
+        ESP_LOGE(WEB_TAG, "Failed to parse leader weight request");
+        return ESP_FAIL;
+    }
+
+    cJSON *weight_json = cJSON_GetObjectItem(request, "weight");
+    if (!cJSON_IsNumber(weight_json) || weight_json->valueint < 0 || weight_json->valueint > 255) {
+        error = cJSON_CreateNumber((double)OT_ERROR_INVALID_ARGS);
+        result = cJSON_CreateString("failed");
+        message = cJSON_CreateString("Missing or invalid 'weight' field (0-255 required)");
+    } else {
+        handle_ot_leader_weight_put_request((uint8_t)weight_json->valueint);
+        error = cJSON_CreateNumber((double)OT_ERROR_NONE);
+        result = cJSON_CreateString("ok");
+        message = cJSON_CreateString("Leader weight updated");
+    }
+
+    response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+exit:
+    cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_become_leader_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    otError err = handle_ot_become_leader_request();
+    cJSON *error = cJSON_CreateNumber((double)err);
+    cJSON *result = err ? cJSON_CreateString("failed") : cJSON_CreateString("ok");
+    cJSON *message = err ? cJSON_CreateString(otThreadErrorToString(err)) : cJSON_CreateString("Become-leader request submitted");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+exit:
+    cJSON_Delete(response);
+    return ret;
+}
 
 static esp_err_t esp_otbr_restart_post_handler(httpd_req_t *req)
 {

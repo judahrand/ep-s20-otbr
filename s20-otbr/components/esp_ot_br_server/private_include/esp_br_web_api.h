@@ -62,6 +62,8 @@ extern "C"
 #define ESP_OT_REST_API_IPADDR_PATH "/ipaddr"
 #define ESP_OT_REST_API_ADD_IPADDR_PATH "/add_ipaddr"
 #define ESP_OT_REST_API_DELETE_IPADDR_PATH "/delete_ipaddr"
+#define ESP_OT_REST_API_LEADER_WEIGHT_PATH "/leader/weight"
+#define ESP_OT_REST_API_BECOME_LEADER_PATH "/leader/become"
 /* To implement in the future */
 #define ESP_OT_REST_API_COMMISSION_PATH "/commission"
 #define ESP_OT_REST_API_NETWORK "/networks"
@@ -303,6 +305,30 @@ extern "C"
      * @return A cJSON object with status, or NULL on failure.
      */
     cJSON *handle_openthread_delete_ipaddr_request(const cJSON *request);
+
+    /**
+     * @brief Get the local Thread leader weight used during leader election.
+     *
+     * @return The current leader weight value (0-255).
+     */
+    uint8_t handle_ot_leader_weight_get_request(void);
+
+    /**
+     * @brief Set the local Thread leader weight used during leader election.
+     *
+     * @param[in] weight    New leader weight value (0-255).
+     */
+    void handle_ot_leader_weight_put_request(uint8_t weight);
+
+    /**
+     * @brief Request the device to become the Thread leader of its current partition.
+     *
+     * @return
+     *      -   OT_ERROR_NONE           :   On success.
+     *      -   OT_ERROR_NOT_CAPABLE    :   Current weight is not higher than the leader's weight.
+     *      -   OT_ERROR_INVALID_STATE  :   Device is not attached as a router.
+     */
+    otError handle_ot_become_leader_request(void);
 
 #ifdef __cplusplus
 }
