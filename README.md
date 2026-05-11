@@ -43,19 +43,23 @@ idf.py set-target esp32s3
 idf.py build
 ```
 
+First deployment must use a USB connection, subsequent updates can be pushed by network.
 If you're using WSL, check [Connect USB devices to WSL](https://learn.microsoft.com/en-us/windows/wsl/connect-usb)
 
-To flash the firmware:
+To flash the firmware with a USB cable:
 ```
 $ idf.py -p /dev/ttyUSB0 flash
 ```
-
-To start monitor:
+To start monitor with a USB cable:
 ```
 $ idf.py -p /dev/ttyUSB0 monitor
 ```
-
 To exit monitor use `Ctrl + ]` or `CTRL + T, CTRL + X`
+
+After the first flash you can push a build with:
+```
+$ ./script/push-update.sh <IP-ADDRESS>
+```
 
 More [flashing procedures](docs/flash.md).
 
