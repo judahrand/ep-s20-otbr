@@ -13,7 +13,8 @@ EOF
 echo alias la='ls -la' >> .bash_aliases
 echo alias cd..='cd ..' >> .bash_aliases
 echo alias k='kubectl' >> .bash_aliases
-echo alias get_idf='. $HOME/esp/esp-idf/export.sh' >> .bash_aliases
+echo alias home_idf='. $HOME/esp/esp-idf/export.sh' >> .bash_aliases
+echo alias local_idf='. ./esp-idf/export.sh' >> .bash_aliases
 
 sudo apt update
 sudo apt upgrade
