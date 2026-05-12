@@ -102,7 +102,7 @@ upload_bin() {
     echo "  Size: ${size} bytes"
 
     local http_code response body
-    response=$(curl --silent --show-error --write-out "\n%{http_code}" \
+    response=$(curl --progress-bar --show-error --write-out "\n%{http_code}" \
         --max-time 300 \
         --header "Content-Type: application/octet-stream" \
         --data-binary "@${path}" \
