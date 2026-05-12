@@ -1468,9 +1468,7 @@ static esp_err_t esp_otbr_network_properties_get_handler(httpd_req_t *req)
     cJSON *response = pack_response(error, result, message);
     ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to response %s", req->uri);
     ESP_GOTO_ON_FALSE(result, ESP_FAIL, exit, WEB_TAG, "Failed to Get Thread network properties");
-    ESP_LOGI(WEB_TAG, "<================= OpenThread Properties ==================>");
-    ESP_LOGI(WEB_TAG, "Collection Complete !");
-    ESP_LOGI(WEB_TAG, "<==========================================================>");
+    // ESP_LOGI(WEB_TAG, "OpenThread properties collection complete");
 
 exit:
     cJSON_Delete(response);
@@ -2222,17 +2220,21 @@ static esp_err_t esp_otbr_leader_weight_put_handler(httpd_req_t *req)
     cJSON *message = NULL;
 
     request = httpd_request_convert2_json(req, cJSON_Object);
-    if (!request) {
+    if (!request)
+    {
         ESP_LOGE(WEB_TAG, "Failed to parse leader weight request");
         return ESP_FAIL;
     }
 
     cJSON *weight_json = cJSON_GetObjectItem(request, "weight");
-    if (!cJSON_IsNumber(weight_json) || weight_json->valueint < 0 || weight_json->valueint > 255) {
+    if (!cJSON_IsNumber(weight_json) || weight_json->valueint < 0 || weight_json->valueint > 255)
+    {
         error = cJSON_CreateNumber((double)OT_ERROR_INVALID_ARGS);
         result = cJSON_CreateString("failed");
         message = cJSON_CreateString("Missing or invalid 'weight' field (0-255 required)");
-    } else {
+    }
+    else
+    {
         handle_ot_leader_weight_put_request((uint8_t)weight_json->valueint);
         error = cJSON_CreateNumber((double)OT_ERROR_NONE);
         result = cJSON_CreateString("ok");
@@ -2924,7 +2926,7 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
  */
 static esp_err_t httpd_resp_send_spiffs_file(httpd_req_t *req, char *path)
 {
-    ESP_LOGI(WEB_TAG, "Reading %s", path);
+    // ESP_LOGI(WEB_TAG, "Reading %s", path);
 
     FILE *fp = fopen(path, "r");
     ESP_RETURN_ON_FALSE(fp, ESP_FAIL, WEB_TAG, "Failed to open %s file", path);
@@ -3056,8 +3058,7 @@ static esp_err_t default_urls_get_handler(httpd_req_t *req)
     request_url_t info =
         parse_request_url_information(req->uri, &url, ((http_server_data_t *)req->user_ctx)->base_path);
 
-    ESP_LOGI(WEB_TAG, "-------------------------------------------");
-    ESP_LOGI(WEB_TAG, "%s", info.file_name);
+    // ESP_LOGI(WEB_TAG, "Requested %s", info.file_name);
     if (!strcmp(info.file_name, "")) // check the filename.
     {
         ESP_LOGE(WEB_TAG, "Filename is too long or url error"); /* Respond with 500 Internal Server Error */
