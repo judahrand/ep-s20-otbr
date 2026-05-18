@@ -1,10 +1,3 @@
-/*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- *
- * ESP Thread Border Router - Shared API utilities
- */
 'use strict';
 
 /**
@@ -148,20 +141,21 @@ function disableManagementPage() {
     { href: '/index.html', label: 'Dashboard' },
     {
       label: 'Thread', children: [
-        { href: '/network.html', label: 'Network' },
+        { href: '/mesh.html', label: 'Mesh' },
         { href: '/commission.html', label: 'Commissioner' },
         { href: '/addresses.html', label: 'Addresses' },
+        { href: '/topology.html', label: 'Topology' },
         { href: '/tools.html', label: 'Tools' }
       ]
     },
     {
       label: 'System', children: [
+        { href: '/network.html', label: 'Network' },
         { href: '/logs.html', label: 'Logs' },
         { href: '/ota.html', label: 'OTA Update' },
         { href: '/advanced.html', label: 'Advanced' }
       ]
     },
-    { href: '/topology.html', label: 'Topology' },
     { href: '/about.html', label: 'About' }
   ];
   var nav = document.getElementById('nav');

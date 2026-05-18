@@ -267,6 +267,7 @@ static esp_err_t esp_otbr_nvs_restore_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ipaddr_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_add_ipaddr_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_delete_ipaddr_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_ethernet_ipaddr_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_leader_weight_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_leader_weight_put_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_become_leader_post_handler(httpd_req_t *req);
@@ -285,25 +286,25 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .user_ctx = NULL,
     },
     {
-        .uri = ESP_OT_REST_API_JOIN_NETWORK_PATH,
+        .uri = ESP_OT_REST_API_MESH_JOIN_NETWORK_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_network_join_post_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_FORM_NETWORK_PATH,
+        .uri = ESP_OT_REST_API_MESH_FORM_NETWORK_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_network_form_post_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_ADD_NETWORK_PREFIX_PATH,
+        .uri = ESP_OT_REST_API_MESH_ADD_NETWORK_PREFIX_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_add_network_prefix_post_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_DELETE_NETWORK_PREFIX_PATH,
+        .uri = ESP_OT_REST_API_MESH_DELETE_NETWORK_PREFIX_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_delete_network_prefix_post_handler,
         .user_ctx = &s_server.data,
@@ -375,37 +376,43 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_IPADDR_PATH,
+        .uri = ESP_OT_REST_API_MESH_IPADDR_PATH,
         .method = HTTP_GET,
         .handler = esp_otbr_ipaddr_get_handler,
         .user_ctx = NULL,
     },
     {
-        .uri = ESP_OT_REST_API_ADD_IPADDR_PATH,
+        .uri = ESP_OT_REST_API_MESH_ADD_IPADDR_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_add_ipaddr_post_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_DELETE_IPADDR_PATH,
+        .uri = ESP_OT_REST_API_MESH_DELETE_IPADDR_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_delete_ipaddr_post_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_LEADER_WEIGHT_PATH,
+        .uri = ESP_OT_REST_API_ETHERNET_IPADDR_PATH,
+        .method = HTTP_GET,
+        .handler = esp_otbr_ethernet_ipaddr_get_handler,
+        .user_ctx = NULL,
+    },
+    {
+        .uri = ESP_OT_REST_API_MESH_LEADER_WEIGHT_PATH,
         .method = HTTP_GET,
         .handler = esp_otbr_leader_weight_get_handler,
         .user_ctx = NULL,
     },
     {
-        .uri = ESP_OT_REST_API_LEADER_WEIGHT_PATH,
+        .uri = ESP_OT_REST_API_MESH_LEADER_WEIGHT_PATH,
         .method = HTTP_PUT,
         .handler = esp_otbr_leader_weight_put_handler,
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_BECOME_LEADER_PATH,
+        .uri = ESP_OT_REST_API_MESH_BECOME_LEADER_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_become_leader_post_handler,
         .user_ctx = NULL,
@@ -2054,6 +2061,19 @@ static esp_err_t esp_otbr_delete_ipaddr_post_handler(httpd_req_t *req)
     ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
 exit:
     cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_ethernet_ipaddr_get_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *result = handle_ethernet_ipaddr_request();
+    cJSON *error = result ? cJSON_CreateNumber((double)OT_ERROR_NONE) : cJSON_CreateNumber((double)OT_ERROR_FAILED);
+    cJSON *message = result ? cJSON_CreateString("OK") : cJSON_CreateString("Failed to list ethernet addresses");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+exit:
     cJSON_Delete(response);
     return ret;
 }

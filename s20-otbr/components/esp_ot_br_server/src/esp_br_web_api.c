@@ -1421,6 +1421,45 @@ cJSON *handle_openthread_delete_ipaddr_request(const cJSON *request)
     return result;
 }
 
+cJSON *handle_ethernet_ipaddr_request(void)
+{
+    cJSON *arr = cJSON_CreateArray();
+    char addr_buf[46]; /* enough for IPv4 (15) or IPv6 (39) + null */
+
+    esp_netif_t *eth_netif = esp_netif_get_handle_from_ifkey("ETH_DEF");
+    if (!eth_netif) {
+        ESP_LOGW(API_TAG, "Ethernet netif not found");
+        return arr;
+    }
+
+    /* IPv4 address */
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(eth_netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+        cJSON *entry = cJSON_CreateObject();
+        snprintf(addr_buf, sizeof(addr_buf), IPSTR, IP2STR(&ip_info.ip));
+        cJSON_AddStringToObject(entry, "address", addr_buf);
+        cJSON_AddStringToObject(entry, "type", "ipv4");
+        snprintf(addr_buf, sizeof(addr_buf), IPSTR, IP2STR(&ip_info.netmask));
+        cJSON_AddStringToObject(entry, "netmask", addr_buf);
+        snprintf(addr_buf, sizeof(addr_buf), IPSTR, IP2STR(&ip_info.gw));
+        cJSON_AddStringToObject(entry, "gateway", addr_buf);
+        cJSON_AddItemToArray(arr, entry);
+    }
+
+    /* IPv6 addresses */
+    esp_ip6_addr_t ip6_addrs[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
+    int count = esp_netif_get_all_ip6(eth_netif, ip6_addrs);
+    for (int i = 0; i < count; i++) {
+        cJSON *entry = cJSON_CreateObject();
+        snprintf(addr_buf, sizeof(addr_buf), IPV6STR, IPV62STR(ip6_addrs[i]));
+        cJSON_AddStringToObject(entry, "address", addr_buf);
+        cJSON_AddStringToObject(entry, "type", "ipv6");
+        cJSON_AddItemToArray(arr, entry);
+    }
+
+    return arr;
+}
+
 uint8_t handle_ot_leader_weight_get_request(void)
 {
     esp_openthread_lock_acquire(portMAX_DELAY);

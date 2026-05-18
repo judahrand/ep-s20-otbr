@@ -37,10 +37,6 @@ void esp_br_web_api_init(void);
 #define ESP_OT_REST_API_TOPOLOGY_PATH "/topology"
 #define ESP_OT_REST_API_LOGS_STREAM_PATH "/logs/stream"
 /* HTTP POST */
-#define ESP_OT_REST_API_JOIN_NETWORK_PATH "/join_network"
-#define ESP_OT_REST_API_FORM_NETWORK_PATH "/form_network"
-#define ESP_OT_REST_API_ADD_NETWORK_PREFIX_PATH "/add_prefix"
-#define ESP_OT_REST_API_DELETE_NETWORK_PREFIX_PATH "/delete_prefix"
 #define ESP_OT_REST_API_PING_PATH "/ping"
 #define ESP_OT_REST_API_OTA_PATH "/ota"
 #define ESP_OT_REST_API_OTA_UPLOAD_PATH "/ota/upload"
@@ -52,11 +48,16 @@ void esp_br_web_api_init(void);
 #define ESP_OT_REST_API_FACTORY_RESET_PATH "/factory_reset"
 #define ESP_OT_REST_API_NVS_BACKUP_PATH "/nvs/backup"
 #define ESP_OT_REST_API_NVS_RESTORE_PATH "/nvs/restore"
-#define ESP_OT_REST_API_IPADDR_PATH "/ipaddr"
-#define ESP_OT_REST_API_ADD_IPADDR_PATH "/add_ipaddr"
-#define ESP_OT_REST_API_DELETE_IPADDR_PATH "/delete_ipaddr"
-#define ESP_OT_REST_API_LEADER_WEIGHT_PATH "/leader/weight"
-#define ESP_OT_REST_API_BECOME_LEADER_PATH "/leader/become"
+#define ESP_OT_REST_API_MESH_JOIN_NETWORK_PATH "/mesh/join_network"
+#define ESP_OT_REST_API_MESH_FORM_NETWORK_PATH "/mesh/form_network"
+#define ESP_OT_REST_API_MESH_ADD_NETWORK_PREFIX_PATH "/mesh/add_prefix"
+#define ESP_OT_REST_API_MESH_DELETE_NETWORK_PREFIX_PATH "/mesh/delete_prefix"
+#define ESP_OT_REST_API_MESH_IPADDR_PATH "/mesh/ipaddr"
+#define ESP_OT_REST_API_MESH_ADD_IPADDR_PATH "/mesh/add_ipaddr"
+#define ESP_OT_REST_API_MESH_DELETE_IPADDR_PATH "/mesh/delete_ipaddr"
+#define ESP_OT_REST_API_MESH_LEADER_WEIGHT_PATH "/mesh/leader_weight"
+#define ESP_OT_REST_API_MESH_BECOME_LEADER_PATH "/mesh/leader_become"
+#define ESP_OT_REST_API_ETHERNET_IPADDR_PATH "/ethernet/ipaddr"
 /* To implement in the future */
 #define ESP_OT_REST_API_COMMISSION_PATH "/commission"
 #define ESP_OT_REST_API_NETWORK "/networks"
@@ -298,6 +299,13 @@ cJSON *handle_openthread_add_ipaddr_request(const cJSON *request);
  * @return A cJSON object with status, or NULL on failure.
  */
 cJSON *handle_openthread_delete_ipaddr_request(const cJSON *request);
+
+/**
+ * @brief List all IP addresses (IPv4 and IPv6) on the Ethernet interface.
+ *
+ * @return A cJSON array of address objects, or NULL on failure.
+ */
+cJSON *handle_ethernet_ipaddr_request(void);
 
 /**
  * @brief Get the local Thread leader weight used during leader election.
