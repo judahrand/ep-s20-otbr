@@ -18,7 +18,7 @@
         <!-- Network IP Addresses -->
         <div class="card section">
             <div class="flex-between mb-16">
-                <div class="card-header" style="border:none;margin:0;padding:0">Network IP Addresses</div>
+                <div class="card-header" style="border:none;margin:0;padding:0">Network Addresses</div>
                 <button class="btn btn-primary btn-sm" id="ethRefreshBtn"
                     onclick="loadEthernetAddresses()">Refresh</button>
             </div>
@@ -33,13 +33,20 @@
     <script src="/static/api.js"></script>
     <script>
         function renderEthernetAddresses(data) {
-            var list = (data && data.result) ? data.result : [];
+            var result = (data && data.result) ? data.result : {};
+            var mac = result.mac || '';
+            var list = result.addresses || [];
             var el = document.getElementById('ethAddrList');
+            var html = '';
+            if (mac) {
+                html += '<div class="info-row"><span class="info-label">MAC Address:</span><span class="info-value mono">' + escapeHtml(mac) + '</span></div>';
+            }
             if (!list.length) {
-                el.innerHTML = '<p class="text-muted" style="font-size:13px">No addresses</p>';
+                html += '<p class="text-muted" style="font-size:13px">No addresses</p>';
+                el.innerHTML = html;
                 return;
             }
-            var html = '<div class="table-wrap"><table><thead><tr><th>Address</th><th>Type</th><th>Details</th></tr></thead><tbody>';
+            html += '<div class="table-wrap"><table><thead><tr><th>Address</th><th>Type</th><th>Details</th></tr></thead><tbody>';
             for (var i = 0; i < list.length; i++) {
                 var a = list[i];
                 var badge = a.type === 'ipv4' ? 'badge-info' : 'badge-success';

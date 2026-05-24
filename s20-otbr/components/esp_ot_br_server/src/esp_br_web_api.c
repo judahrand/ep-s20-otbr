@@ -1423,13 +1423,26 @@ cJSON *handle_openthread_delete_ipaddr_request(const cJSON *request)
 
 cJSON *handle_ethernet_ipaddr_request(void)
 {
+    cJSON *obj = cJSON_CreateObject();
     cJSON *arr = cJSON_CreateArray();
     char addr_buf[46]; /* enough for IPv4 (15) or IPv6 (39) + null */
 
     esp_netif_t *eth_netif = esp_netif_get_handle_from_ifkey("ETH_DEF");
     if (!eth_netif) {
         ESP_LOGW(API_TAG, "Ethernet netif not found");
-        return arr;
+        cJSON_AddStringToObject(obj, "mac", "");
+        cJSON_AddItemToObject(obj, "addresses", arr);
+        return obj;
+    }
+
+    /* MAC address */
+    uint8_t mac[6] = {0};
+    if (esp_netif_get_mac(eth_netif, mac) == ESP_OK) {
+        snprintf(addr_buf, sizeof(addr_buf), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+                 mac[5]);
+        cJSON_AddStringToObject(obj, "mac", addr_buf);
+    } else {
+        cJSON_AddStringToObject(obj, "mac", "");
     }
 
     /* IPv4 address */
@@ -1457,7 +1470,8 @@ cJSON *handle_ethernet_ipaddr_request(void)
         cJSON_AddItemToArray(arr, entry);
     }
 
-    return arr;
+    cJSON_AddItemToObject(obj, "addresses", arr);
+    return obj;
 }
 
 uint8_t handle_ot_leader_weight_get_request(void)
