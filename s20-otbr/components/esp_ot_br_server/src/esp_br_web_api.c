@@ -19,6 +19,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
+#include "lwip/ip6_addr.h"
+#include "lwip/netif.h"
 #include "openthread/border_agent.h"
 #include "openthread/border_router.h"
 #include "openthread/commissioner.h"
@@ -1459,15 +1461,40 @@ cJSON *handle_ethernet_ipaddr_request(void)
         cJSON_AddItemToArray(arr, entry);
     }
 
-    /* IPv6 addresses */
-    esp_ip6_addr_t ip6_addrs[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
-    int count = esp_netif_get_all_ip6(eth_netif, ip6_addrs);
-    for (int i = 0; i < count; i++) {
-        cJSON *entry = cJSON_CreateObject();
-        snprintf(addr_buf, sizeof(addr_buf), IPV6STR, IPV62STR(ip6_addrs[i]));
-        cJSON_AddStringToObject(entry, "address", addr_buf);
-        cJSON_AddStringToObject(entry, "type", "ipv6");
-        cJSON_AddItemToArray(arr, entry);
+    /* IPv6 addresses with origin metadata */
+    struct netif *lwip_netif = (struct netif *)esp_netif_get_netif_impl(eth_netif);
+    if (lwip_netif && netif_is_up(lwip_netif)) {
+        for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+            if (!ip6_addr_isvalid(netif_ip6_addr_state(lwip_netif, i)) ||
+                ip_addr_cmp(&lwip_netif->ip6_addr[i], IP6_ADDR_ANY)) {
+                continue;
+            }
+
+            const ip6_addr_t *ip6 = netif_ip6_addr(lwip_netif, i);
+            bool is_link_local = ip6_addr_islinklocal(ip6);
+            bool is_slaac = !is_link_local && !netif_ip6_addr_isstatic(lwip_netif, i);
+            const char *origin = is_slaac ? "slaac" : "manual";
+            esp_ip6_addr_t ip6_for_print = {0};
+            memcpy(ip6_for_print.addr, ip6->addr, sizeof(ip6_for_print.addr));
+
+            cJSON *entry = cJSON_CreateObject();
+            snprintf(addr_buf, sizeof(addr_buf), IPV6STR, IPV62STR(ip6_for_print));
+            cJSON_AddStringToObject(entry, "address", addr_buf);
+            cJSON_AddStringToObject(entry, "type", "ipv6");
+            cJSON_AddStringToObject(entry, "origin", origin);
+            cJSON_AddBoolToObject(entry, "slaac", is_slaac);
+            cJSON_AddItemToArray(arr, entry);
+        }
+    } else {
+        esp_ip6_addr_t ip6_addrs[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
+        int count = esp_netif_get_all_ip6(eth_netif, ip6_addrs);
+        for (int i = 0; i < count; i++) {
+            cJSON *entry = cJSON_CreateObject();
+            snprintf(addr_buf, sizeof(addr_buf), IPV6STR, IPV62STR(ip6_addrs[i]));
+            cJSON_AddStringToObject(entry, "address", addr_buf);
+            cJSON_AddStringToObject(entry, "type", "ipv6");
+            cJSON_AddItemToArray(arr, entry);
+        }
     }
 
     cJSON_AddItemToObject(obj, "addresses", arr);
