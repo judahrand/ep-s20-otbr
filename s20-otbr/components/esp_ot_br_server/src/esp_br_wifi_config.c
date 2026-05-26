@@ -22,6 +22,7 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "nvs.h"
+#include "nvs_config.h"
 #include "nvs_flash.h"
 #include "lwip/ip_addr.h"
 #include "lwip/netdb.h"
@@ -470,6 +471,10 @@ static esp_err_t wifi_config_submit_handler(httpd_req_t *req)
     if (s_wifi_event_group) {
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONFIGURED_BIT);
     }
+
+    // Persist credentials to NVS so they survive a reboot
+    nvs_config_set(NVS_CONFIG_KEY_WIFI_SSID, s_configured_ssid);
+    nvs_config_set(NVS_CONFIG_KEY_WIFI_PASS, s_configured_password);
 
     ESP_LOGI(WIFI_CONFIG_TAG, "WiFi configuration received: SSID=%s", s_configured_ssid);
 

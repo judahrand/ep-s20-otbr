@@ -26,20 +26,24 @@
             </div>
         </div>
 
-        <!-- Leader Management Section -->
+        <!-- Advanced Section -->
         <div class="card section">
-            <div class="card-header">Leader Management</div>
-            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Configure the local leader weight used
-                during leader election, or request this device to become the Thread leader.</p>
+            <div class="card-header">Advanced Management</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Configure advanced Thread settings.</p>
             <div class="form-row" style="align-items:flex-end">
                 <div class="form-group" style="flex:1;margin-bottom:0">
-                    <label class="form-label">Leader Weight (0–255)</label>
-                    <input class="form-input" id="leaderWeightInput" type="number" min="0" max="255" value="64">
+                    <label class="form-label">Leader Weight (0-255)</label>
+                    <input class="form-input" style="width:auto" id="leaderWeightInput" type="number" min="0" max="255"
+                        value="64">
+                    <button class="btn btn-primary" id="setWeightBtn" onclick="setLeaderWeight()">Set Weight</button>
+                    <button class="btn btn-primary" id="becomeLeaderBtn" onclick="becomeLeader()">Become Leader</button>
                 </div>
                 <div style="margin-left:10px;margin-bottom:0">
-                    <button class="btn btn-primary" id="setWeightBtn" onclick="setLeaderWeight()">Set Weight</button>
-                    <button class="btn btn-primary" id="becomeLeaderBtn" onclick="becomeLeader()">Assume
-                        Leadership</button>
+                    <label class="form-label">Transmit Power (1-20)</label>
+                    <input class="form-input" style="width:auto" id="transmitPowerInput" type="number" min="1" max="20"
+                        value="20">
+                    <button class="btn btn-primary" id="setTransmitPowerBtn" onclick="setTransmitPower()">Set
+                        Power</button>
                 </div>
             </div>
             <div id="leaderStatus" style="font-size:13px;margin-top:10px"></div>
@@ -431,11 +435,16 @@
         document.addEventListener('DOMContentLoaded', function () {
             loadThreadState();
             startMeshPolling();
-            apiGet('/mesh/leader_weight').then(function (res) {
-                if (res && !res.error && typeof res.result === 'number') {
-                    document.getElementById('leaderWeightInput').value = res.result;
+            apiGet('/config').then(function (res) {
+                if (res && res.result) {
+                    if (res.result.th_ldr_wt != null) {
+                        document.getElementById('leaderWeightInput').value = res.result.th_ldr_wt;
+                    }
+                    if (res.result.th_txpwr != null) {
+                        document.getElementById('transmitPowerInput').value = res.result.th_txpwr;
+                    }
                 }
-            }).catch(function () { /* ignore — keep default */ });
+            }).catch(function () { /* ignore — keep defaults */ });
         });
 
         var _formPollTimer = null;
@@ -482,19 +491,14 @@
             btn.disabled = true;
             status.textContent = 'Setting weight...';
             status.style.color = 'var(--text-muted)';
-            apiPut('/mesh/leader_weight', { weight: weight }).then(function (res) {
-                btn.disabled = false;
-                if (res && !res.error) {
-                    status.textContent = 'Leader weight set to ' + weight;
-                    status.style.color = 'var(--success)';
-                } else {
-                    status.textContent = 'Failed: ' + (res && res.message ? res.message : 'Unknown error');
-                    status.style.color = 'var(--danger)';
-                }
+            apiPut('/config', { th_ldr_wt: String(weight) }).then(function () {
+                status.textContent = 'Leader weight set to ' + weight;
+                status.style.color = 'var(--success)';
             }).catch(function () {
-                btn.disabled = false;
                 status.textContent = 'Network error';
                 status.style.color = 'var(--danger)';
+            }).then(function () {
+                btn.disabled = false;
             });
         }
 
@@ -517,6 +521,31 @@
                 btn.disabled = false;
                 status.textContent = 'Network error';
                 status.style.color = 'var(--danger)';
+            });
+        }
+
+        /* ──── Transmit Power ──── */
+        function setTransmitPower() {
+            var input = document.getElementById('transmitPowerInput');
+            var status = document.getElementById('leaderStatus');
+            var btn = document.getElementById('setTransmitPowerBtn');
+            var val = parseInt(input.value, 10);
+            if (isNaN(val) || val < 1 || val > 20) {
+                status.textContent = 'Invalid power — must be 1–20';
+                status.style.color = 'var(--danger)';
+                return;
+            }
+            btn.disabled = true;
+            status.textContent = 'Setting transmit power...';
+            status.style.color = 'var(--text-muted)';
+            apiPut('/config', { th_txpwr: String(val) }).then(function () {
+                status.textContent = 'Transmit power set to ' + val + ' dBm';
+                status.style.color = 'var(--success)';
+            }).catch(function () {
+                status.textContent = 'Network error';
+                status.style.color = 'var(--danger)';
+            }).then(function () {
+                btn.disabled = false;
             });
         }
     </script>

@@ -701,7 +701,6 @@ cJSON *diagnosticTlv_set_convert2_json(const thread_diagnosticTlv_set_t *set)
                     cJSON_AddItemToArray(addr_list, IpAddr2Json((list->diagTlv->mData.mIp6AddrList.mList[i])));
                 }
                 cJSON_AddItemToObject(child, "IP6AddressList", addr_list);
-
             } break;
             case OT_NETWORK_DIAGNOSTIC_TLV_MAC_COUNTERS:
                 cJSON_AddItemToObject(child, "MACCounters", MacCounters2Json((list->diagTlv->mData.mMacCounters)));
@@ -719,7 +718,6 @@ cJSON *diagnosticTlv_set_convert2_json(const thread_diagnosticTlv_set_t *set)
                                          ChildTableEntry2Json((list->diagTlv->mData.mChildTable.mTable[i])));
                 }
                 cJSON_AddItemToObject(child, "ChildTable", table_list);
-
             } break;
             case OT_NETWORK_DIAGNOSTIC_TLV_CHANNEL_PAGES:
                 hex_to_string(list->diagTlv->mData.mChannelPages.m8, output, list->diagTlv->mData.mChannelPages.mCount);

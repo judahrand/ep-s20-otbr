@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "sdkconfig.h"
@@ -22,9 +23,13 @@
 #include "nvs_flash.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
+#include "openthread/platform/radio.h"
+#include "openthread/thread_ftd.h"
+#include "openthread/trel.h"
 
 #include "border_router_launch.h"
 #include "esp_br_web.h"
+#include "nvs_config.h"
 
 #include "led.h"
 
@@ -112,6 +117,23 @@ static void thread_event_handler(void *esp_netif, esp_event_base_t event_base, i
     ESP_LOGD(TAG, "===========esp_netif action has started with netif%p from event_id=%" PRId32, esp_netif, event_id);
     if (event_id == OPENTHREAD_EVENT_START) {
         ESP_LOGI(TAG, "======OPENTHREAD_EVENT_START======");
+        otInstance *instance = esp_openthread_get_instance();
+        char param_buf[8];
+        if (nvs_config_get(NVS_CONFIG_KEY_TH_TXPWR, param_buf, sizeof(param_buf)) == ESP_OK) {
+            int8_t txpower = (int8_t)atoi(param_buf);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(otPlatRadioSetTransmitPower(instance, txpower));
+            ESP_LOGI(TAG, "Thread TX power restored: %d dBm", txpower);
+        }
+        if (nvs_config_get(NVS_CONFIG_KEY_TH_LDR_WT, param_buf, sizeof(param_buf)) == ESP_OK) {
+            uint8_t weight = (uint8_t)atoi(param_buf);
+            otThreadSetLocalLeaderWeight(instance, weight);
+            ESP_LOGI(TAG, "Thread leader weight restored: %u", weight);
+        }
+        if (nvs_config_get(NVS_CONFIG_KEY_TH_TREL, param_buf, sizeof(param_buf)) == ESP_OK) {
+            bool enabled = atoi(param_buf) != 0;
+            otTrelSetEnabled(instance, enabled);
+            ESP_LOGI(TAG, "Thread TREL state restored: %d", enabled);
+        }
     } else if (event_id == OPENTHREAD_EVENT_ATTACHED) {
         ESP_LOGI(TAG, "======OPENTHREAD_EVENT_ATTACHED======");
     } else if (event_id == OPENTHREAD_EVENT_ROLE_CHANGED) {
@@ -123,7 +145,7 @@ static void thread_event_handler(void *esp_netif, esp_event_base_t event_base, i
         } else {
             set_mesh_led_color(false, true, false);
         }
-        ESP_LOGI(TAG, "======OPENTHREAD_EVENT_ROLE_CHANGED======%s", otThreadDeviceRoleToString(role));
+        ESP_LOGI(TAG, "======OPENTHREAD_EVENT_ROLE_CHANGED====== %s", otThreadDeviceRoleToString(role));
     }
 }
 
@@ -160,6 +182,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_vfs_eventfd_register(&eventfd_config));
     ESP_ERROR_CHECK(led_init());
     ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(nvs_config_init("s20_config"));
     ESP_ERROR_CHECK(init_spiffs());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -178,7 +201,11 @@ void app_main(void)
     // #endif // CONFIG_EXTERNAL_COEX_ENABLE
 
     ESP_ERROR_CHECK(mdns_init());
-    ESP_ERROR_CHECK(mdns_hostname_set("ep-s20-otbr"));
+    {
+        char hostname_buf[64];
+        esp_err_t hostname_err = nvs_config_get(NVS_CONFIG_KEY_HOSTNAME, hostname_buf, sizeof(hostname_buf));
+        ESP_ERROR_CHECK(mdns_hostname_set(hostname_err == ESP_OK ? hostname_buf : "ep-s20-otbr"));
+    }
 #if CONFIG_OPENTHREAD_CLI_OTA || CONFIG_OPENTHREAD_BR_START_WEB
     esp_set_ota_server_cert((char *)server_cert_pem_start);
 #endif
