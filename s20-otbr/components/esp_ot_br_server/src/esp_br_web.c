@@ -455,7 +455,7 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .uri = ESP_OT_REST_API_CONFIG_PATH,
         .method = HTTP_PUT,
         .handler = esp_otbr_config_put_handler,
-        .user_ctx = NULL,
+        .user_ctx = &s_server.data,
     },
 };
 
