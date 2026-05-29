@@ -280,7 +280,7 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .user_ctx = NULL,
     },
     {
-        .uri = ESP_OT_REST_API_AVAILABLE_NETWORK_PATH,
+        .uri = ESP_OT_REST_API_MESH_AVAILABLE_NETWORK_PATH,
         .method = HTTP_GET,
         .handler = esp_otbr_available_networks_get_handler,
         .user_ctx = NULL,
@@ -316,7 +316,7 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .user_ctx = &s_server.data,
     },
     {
-        .uri = ESP_OT_REST_API_TOPOLOGY_PATH,
+        .uri = ESP_OT_REST_API_MESH_TOPOLOGY_PATH,
         .method = HTTP_GET,
         .handler = esp_otbr_network_topology_get_handler,
         .user_ctx = NULL,

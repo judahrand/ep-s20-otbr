@@ -32,9 +32,9 @@ void esp_br_web_api_init(void);
 #define ESP_OT_REST_API_NODE_DATASET_ACTIVE_PATH "/node/dataset/active"
 #define ESP_OT_REST_API_NODE_DATASET_PENDING_PATH "/node/dataset/pending"
 #define ESP_OT_REST_API_PROPERTIES_PATH "/get_properties"
-#define ESP_OT_REST_API_AVAILABLE_NETWORK_PATH "/available_network"
-#define ESP_OT_REST_API_NODE_INFORMATION_PATH "/node_information"
-#define ESP_OT_REST_API_TOPOLOGY_PATH "/topology"
+#define ESP_OT_REST_API_MESH_AVAILABLE_NETWORK_PATH "/mesh/available_network"
+#define ESP_OT_REST_API_MESH_TOPOLOGY_PATH "/mesh/topology"
+#define ESP_OT_REST_API_NODE_INFORMATION_PATH "/node/information"
 #define ESP_OT_REST_API_LOGS_STREAM_PATH "/logs/stream"
 /* HTTP POST */
 #define ESP_OT_REST_API_PING_PATH "/ping"

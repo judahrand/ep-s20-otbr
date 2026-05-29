@@ -153,8 +153,8 @@
             showLoading(true);
 
             Promise.all([
-                apiGet('/node_information'),
-                apiGet('/topology')
+                apiGet('/node/information'),
+                apiGet('/mesh/topology')
             ]).then(function (results) {
                 btn.disabled = false;
                 btn.textContent = 'Reload';
@@ -173,8 +173,8 @@
 
         /* Restore from cache if available */
         (function () {
-            var cachedNode = getCached('/node_information');
-            var cachedDiag = getCached('/topology');
+            var cachedNode = getCached('/node/information');
+            var cachedDiag = getCached('/mesh/topology');
             if (cachedNode && cachedDiag) {
                 if (renderTopologyFromData(cachedNode, cachedDiag)) {
                     document.getElementById('topoBtn').textContent = 'Reload';
