@@ -23,7 +23,7 @@ sudo apt-get install -y apt-transport-https ca-certificates curl gnupg wget unzi
 # build env
 
 sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv \
-	cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 jq
+	cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 jq ndisc6
 
 # applications
 
