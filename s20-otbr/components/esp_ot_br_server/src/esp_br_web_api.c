@@ -217,6 +217,16 @@ cJSON *handle_ot_resource_node_baid_request()
     return cJSON_CreateString(format);
 }
 
+cJSON *handle_ot_resource_node_coprocessor_version_request(void)
+{
+    static char s_version[128];
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    strncpy(s_version, otPlatRadioGetVersionString(esp_openthread_get_instance()), sizeof(s_version) - 1);
+    s_version[sizeof(s_version) - 1] = '\0';
+    esp_openthread_lock_release();
+    return cJSON_CreateString(s_version);
+}
+
 cJSON *handle_ot_resource_node_get_dataset_request(const cJSON *request, cJSON *log)
 {
     uint16_t errcode = 200;

@@ -133,6 +133,7 @@ static esp_err_t esp_otbr_network_node_leader_data_get_handler(httpd_req_t *req)
 static esp_err_t esp_otbr_network_node_number_of_router_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_network_node_extpanid_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_network_node_baid_get_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_network_node_coprocessor_version_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_network_node_dataset_active_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_network_node_dataset_pending_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_network_node_dataset_handler(httpd_req_t *req, const char *dataset_type);
@@ -239,6 +240,12 @@ static httpd_uri_t s_resource_handlers[] = {
         .method = HTTP_PUT,
         .handler = esp_otbr_network_node_dataset_pending_handler,
         .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_NODE_COPROCESSOR_VERSION_PATH,
+        .method = HTTP_GET,
+        .handler = esp_otbr_network_node_coprocessor_version_get_handler,
+        .user_ctx = NULL,
     },
 };
 
@@ -1280,6 +1287,16 @@ static esp_err_t esp_otbr_network_node_baid_get_handler(httpd_req_t *req)
 {
     esp_err_t ret = ESP_OK;
     cJSON *response = handle_ot_resource_node_baid_request();
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to response %s", req->uri);
+exit:
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_network_node_coprocessor_version_get_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *response = handle_ot_resource_node_coprocessor_version_request();
     ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to response %s", req->uri);
 exit:
     cJSON_Delete(response);

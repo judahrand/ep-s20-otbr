@@ -31,6 +31,7 @@ void esp_br_web_api_init(void);
 #define ESP_OT_REST_API_NODE_BORDERAGENTID_PATH "/node/ba-id"
 #define ESP_OT_REST_API_NODE_DATASET_ACTIVE_PATH "/node/dataset/active"
 #define ESP_OT_REST_API_NODE_DATASET_PENDING_PATH "/node/dataset/pending"
+#define ESP_OT_REST_API_NODE_COPROCESSOR_VERSION_PATH "/node/coprocessor/version"
 #define ESP_OT_REST_API_NODE_INFORMATION_PATH "/node/information"
 #define ESP_OT_REST_API_PROPERTIES_PATH "/get_properties"
 #define ESP_OT_REST_API_MESH_AVAILABLE_NETWORK_PATH "/mesh/available_network"
@@ -154,6 +155,13 @@ cJSON *handle_ot_resource_node_extpanid_request(void);
  * @return The cJSON object of border agent id
  */
 cJSON *handle_ot_resource_node_baid_request(void);
+
+/**
+ * @brief Provide an entry to get the coprocessor (RCP/NCP) firmware version string
+ *
+ * @return The cJSON string of the coprocessor version, or NULL on failure
+ */
+cJSON *handle_ot_resource_node_coprocessor_version_request(void);
 
 /**
  * @brief Handle the Thread dataset get @param request and provide @param log
