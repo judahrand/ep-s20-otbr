@@ -80,6 +80,7 @@ typedef struct thread_information_status {
     uint16_t thread_version;
     otDeviceRole role;
     otPskc PSKc;
+    uint16_t rloc16;
 } thread_information_status_t;
 
 typedef struct thread_rcp_status {

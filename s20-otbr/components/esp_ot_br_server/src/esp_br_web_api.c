@@ -430,6 +430,7 @@ static esp_err_t get_openthread_information_properties(otInstance *ins, thread_i
     ot_info->thread_version = otThreadGetVersion(); /* 3. thread_version */
     ot_info->role = otThreadGetDeviceRole(ins);     /* 4. role */
     otThreadGetPskc(ins, &ot_info->PSKc);           /* 5. PSKc */
+    ot_info->rloc16 = otThreadGetRloc16(ins);       /* 6. RLOC16 */
     return ESP_OK;
 }
 

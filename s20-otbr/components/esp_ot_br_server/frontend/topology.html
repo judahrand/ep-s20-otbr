@@ -284,6 +284,17 @@
                 return;
             }
 
+            /* Mark the BR's own node */
+            if (nodeInfo.Rloc16 != null) {
+                var brRloc16Str = '0x' + intToHex(nodeInfo.Rloc16, 4);
+                for (i = 0; i < nodes.length; i++) {
+                    if (nodes[i].rloc16 === brRloc16Str) {
+                        nodes[i].isSelf = true;
+                        break;
+                    }
+                }
+            }
+
             renderGraph(nodes, links);
         }
 
@@ -589,6 +600,21 @@
                 }
                 circle.style.cursor = 'pointer';
                 g.appendChild(circle);
+
+                /* Self marker: "this" label inside the circle for the BR's own node */
+                if (n.isSelf) {
+                    var dot = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    dot.setAttribute('x', n.x);
+                    dot.setAttribute('y', n.y);
+                    dot.setAttribute('text-anchor', 'middle');
+                    dot.setAttribute('dominant-baseline', 'central');
+                    dot.setAttribute('font-size', '8');
+                    dot.setAttribute('font-weight', 'bold');
+                    dot.setAttribute('fill', '#484e46');
+                    dot.style.pointerEvents = 'none';
+                    dot.textContent = 'this';
+                    g.appendChild(dot);
+                }
 
                 /* RLOC16 label */
                 var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
