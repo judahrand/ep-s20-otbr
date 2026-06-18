@@ -46,11 +46,15 @@ idf.py build
 First deployment must use a USB connection, subsequent updates can be pushed by network.
 If you're using WSL, check [Connect USB devices to WSL](https://learn.microsoft.com/en-us/windows/wsl/connect-usb)
 
+To erase the flash with a USB cable (recommended before flashing the firmware):
+```
+$ idf.py -p /dev/ttyUSB0 erase-flash
+```
 To flash the firmware with a USB cable:
 ```
 $ idf.py -p /dev/ttyUSB0 flash
 ```
-To start monitor with a USB cable:
+To start log monitoring with a USB cable:
 ```
 $ idf.py -p /dev/ttyUSB0 monitor
 ```
