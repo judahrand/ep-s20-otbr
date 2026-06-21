@@ -17,6 +17,7 @@
 #include "esp_br_wifi_config.h"
 #endif
 #include "esp_check.h"
+#include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
@@ -850,7 +851,7 @@ static void ota_update_task(void *ctx)
     const char *cert_pem = (const char *)server_cert_pem_start;
     esp_http_client_config_t http_config = {
         .url = request->url,
-        .cert_pem = cert_pem,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = NULL,
         .keep_alive_enable = true,
     };
