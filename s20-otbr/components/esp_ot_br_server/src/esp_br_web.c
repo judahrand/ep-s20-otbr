@@ -848,12 +848,13 @@ static void ota_release_slot(void)
 static void ota_update_task(void *ctx)
 {
     ota_request_context_t *request = (ota_request_context_t *)ctx;
-    const char *cert_pem = (const char *)server_cert_pem_start;
     esp_http_client_config_t http_config = {
         .url = request->url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = NULL,
         .keep_alive_enable = true,
+        .buffer_size = 8192,
+        .buffer_size_tx = 2048,
     };
     esp_err_t err = esp_br_http_ota(&http_config);
 
