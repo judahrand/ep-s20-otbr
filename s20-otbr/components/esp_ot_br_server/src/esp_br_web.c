@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 #include "sdkconfig.h"
 
@@ -24,6 +25,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif_sntp.h"
 #include "esp_openthread.h"
 #include "esp_openthread_border_router.h"
 #include "esp_ot_ota_commands.h"
@@ -2355,7 +2357,9 @@ static esp_err_t esp_otbr_config_get_handler(httpd_req_t *req)
 
     /* Read each well-known key; omit keys that have no stored value */
     static const char *const keys[] = {
-        NVS_CONFIG_KEY_HOSTNAME, NVS_CONFIG_KEY_WIFI_SSID, NVS_CONFIG_KEY_TH_TXPWR, NVS_CONFIG_KEY_TH_LDR_WT, NULL,
+        NVS_CONFIG_KEY_HOSTNAME,   NVS_CONFIG_KEY_WIFI_SSID, NVS_CONFIG_KEY_TH_TXPWR,
+        NVS_CONFIG_KEY_TH_LDR_WT,  NVS_CONFIG_KEY_NTP_SERVER, NVS_CONFIG_KEY_TIMEZONE,
+        NULL,
     };
     for (int i = 0; keys[i] != NULL; i++) {
         if (nvs_config_get(keys[i], buf, sizeof(buf)) == ESP_OK) {
@@ -2434,6 +2438,25 @@ static esp_err_t esp_otbr_config_put_handler(httpd_req_t *req)
         if (nvs_config_set(NVS_CONFIG_KEY_TH_LDR_WT, ldrwt_j->valuestring) == ESP_OK) {
             uint8_t ldrwt = (uint8_t)atoi(ldrwt_j->valuestring);
             otThreadSetLocalLeaderWeight(esp_openthread_get_instance(), ldrwt);
+            any_set = true;
+        }
+    }
+
+    cJSON *ntp_j = cJSON_GetObjectItemCaseSensitive(request, NVS_CONFIG_KEY_NTP_SERVER);
+    if (cJSON_IsString(ntp_j) && ntp_j->valuestring && ntp_j->valuestring[0] != '\0') {
+        if (nvs_config_set(NVS_CONFIG_KEY_NTP_SERVER, ntp_j->valuestring) == ESP_OK) {
+            esp_netif_sntp_deinit();
+            esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(ntp_j->valuestring);
+            esp_netif_sntp_init(&sntp_cfg);
+            any_set = true;
+        }
+    }
+
+    cJSON *tz_j = cJSON_GetObjectItemCaseSensitive(request, NVS_CONFIG_KEY_TIMEZONE);
+    if (cJSON_IsString(tz_j) && tz_j->valuestring && tz_j->valuestring[0] != '\0') {
+        if (nvs_config_set(NVS_CONFIG_KEY_TIMEZONE, tz_j->valuestring) == ESP_OK) {
+            setenv("TZ", tz_j->valuestring, 1);
+            tzset();
             any_set = true;
         }
     }
