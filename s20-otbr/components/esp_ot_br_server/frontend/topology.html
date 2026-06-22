@@ -56,9 +56,27 @@
                 </div>
                 <div style="display:flex;align-items:center;gap:6px">
                     <svg width="24" height="16">
-                        <line x1="0" y1="8" x2="24" y2="8" stroke="#c0b8b8" stroke-width="1.5" />
+                        <line x1="0" y1="8" x2="24" y2="8" stroke="#4caf50" stroke-width="2.5" />
                     </svg>
-                    Router Link
+                    Q3 (Good)
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <svg width="24" height="16">
+                        <line x1="0" y1="8" x2="24" y2="8" stroke="#8bc34a" stroke-width="2" />
+                    </svg>
+                    Q2 (OK)
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <svg width="24" height="16">
+                        <line x1="0" y1="8" x2="24" y2="8" stroke="#ff9800" stroke-width="1.5" />
+                    </svg>
+                    Q1 (Poor)
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <svg width="24" height="16">
+                        <line x1="0" y1="8" x2="24" y2="8" stroke="#f44336" stroke-width="1" />
+                    </svg>
+                    Q0 (Bad)
                 </div>
                 <div style="display:flex;align-items:center;gap:6px">
                     <svg width="24" height="16">
@@ -269,7 +287,7 @@
                         source: nodeMap[parentRloc],
                         target: count,
                         type: 'child',
-                        quality: 1
+                        quality: child.LinkQuality || 0
                     });
                     count++;
                 }
@@ -535,21 +553,31 @@
 
             /* Draw links — router links very light, child links subtle */
             var linkEls = [];
+            function qualityColor(q) {
+                if (q >= 3) return '#4caf50';
+                if (q === 2) return '#8bc34a';
+                if (q === 1) return '#ff9800';
+                return '#f44336';
+            }
+            function qualityWidth(q, base) {
+                return base + (q * 0.5);
+            }
             for (i = 0; i < links.length; i++) {
                 var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                 line.setAttribute('x1', nodes[links[i].source].x);
                 line.setAttribute('y1', nodes[links[i].source].y);
                 line.setAttribute('x2', nodes[links[i].target].x);
                 line.setAttribute('y2', nodes[links[i].target].y);
+                var q = links[i].quality || 0;
                 if (links[i].type === 'child') {
-                    line.setAttribute('stroke', '#908484');
+                    line.setAttribute('stroke', qualityColor(q));
                     line.setAttribute('stroke-dasharray', '4 4');
-                    line.setAttribute('stroke-width', '1');
+                    line.setAttribute('stroke-width', qualityWidth(q, 0.8));
                     line.setAttribute('stroke-opacity', '0.5');
                 } else {
-                    line.setAttribute('stroke', '#c0b8b8');
-                    line.setAttribute('stroke-width', '1');
-                    line.setAttribute('stroke-opacity', '0.2');
+                    line.setAttribute('stroke', qualityColor(q));
+                    line.setAttribute('stroke-width', qualityWidth(q, 1));
+                    line.setAttribute('stroke-opacity', '0.3');
                 }
                 svg.appendChild(line);
                 linkEls.push(line);
@@ -687,13 +715,15 @@
                 }
                 for (var li = 0; li < linkEls.length; li++) {
                     var lk = links[li];
+                    var q = lk.quality || 0;
                     if (lk.type === 'child') {
                         linkEls[li].setAttribute('stroke-opacity', '0.5');
-                        linkEls[li].setAttribute('stroke', '#908484');
+                        linkEls[li].setAttribute('stroke', qualityColor(q));
+                        linkEls[li].setAttribute('stroke-width', qualityWidth(q, 0.8));
                     } else {
-                        linkEls[li].setAttribute('stroke-opacity', '0.2');
-                        linkEls[li].setAttribute('stroke', '#c0b8b8');
-                        linkEls[li].setAttribute('stroke-width', '1');
+                        linkEls[li].setAttribute('stroke-opacity', '0.3');
+                        linkEls[li].setAttribute('stroke', qualityColor(q));
+                        linkEls[li].setAttribute('stroke-width', qualityWidth(q, 1));
                     }
                 }
             }
@@ -806,6 +836,26 @@
                 }
                 if (d.ChildTable && d.ChildTable.length > 0) {
                     html += '<div class="info-row"><span class="info-label">Children</span><span class="info-value">' + d.ChildTable.length + '</span></div>';
+                    html += '<div class="table-wrap" style="margin-top:6px"><table><thead><tr><th>Child ID</th><th>Q</th><th>Timeout</th></tr></thead><tbody>';
+                    for (var c = 0; c < d.ChildTable.length; c++) {
+                        var ch = d.ChildTable[c];
+                        var cq = ch.LinkQuality !== undefined ? ch.LinkQuality : '-';
+                        html += '<tr><td>0x' + intToHex(ch.ChildId, 2) + '</td><td>' + cq + '</td><td>' + escapeHtml(ch.Timeout || '-') + '</td></tr>';
+                    }
+                    html += '</tbody></table></div>';
+                }
+                if (d.MACCounters) {
+                    var mc = d.MACCounters;
+                    html += '<div class="info-row" style="margin-top:10px"><span class="info-label">MAC Counters</span><span class="info-value" style="font-size:11px">';
+                    html += 'In Ucast: ' + escapeHtml(mc.IfInUcastPkts || 0);
+                    html += ' Bcast: ' + escapeHtml(mc.IfInBroadcastPkts || 0);
+                    html += '<br>Out Ucast: ' + escapeHtml(mc.IfOutUcastPkts || 0);
+                    html += ' Bcast: ' + escapeHtml(mc.IfOutBroadcastPkts || 0);
+                    html += '<br>In Discards: ' + escapeHtml(mc.IfInDiscards || 0);
+                    html += ' Out Discards: ' + escapeHtml(mc.IfOutDiscards || 0);
+                    html += '<br>In Errors: ' + escapeHtml(mc.IfInErrors || 0);
+                    html += ' Out Errors: ' + escapeHtml(mc.IfOutErrors || 0);
+                    html += '</span></div>';
                 }
             }
             content.innerHTML = html;

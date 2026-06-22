@@ -647,6 +647,7 @@ static cJSON *ChildTableEntry2Json(const otNetworkDiagChildEntry aChildEntry)
 
     cJSON_AddItemToObject(childEntry, "ChildId", cJSON_CreateNumber(aChildEntry.mChildId));
     cJSON_AddItemToObject(childEntry, "Timeout", cJSON_CreateNumber(aChildEntry.mTimeout));
+    cJSON_AddItemToObject(childEntry, "LinkQuality", cJSON_CreateNumber(aChildEntry.mLinkQuality));
 
     cJSON *mode = Mode2Json(aChildEntry.mMode);
     cJSON_AddItemToObject(childEntry, "Mode", mode);

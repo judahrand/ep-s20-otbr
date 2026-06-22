@@ -281,6 +281,7 @@ static esp_err_t esp_otbr_network_topology_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_current_node_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_logs_stream_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ping_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_linkmetrics_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_app_post_handler(httpd_req_t *req);
@@ -366,6 +367,12 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .uri = ESP_OT_REST_API_PING_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_ping_post_handler,
+        .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_LINKMETRICS_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_linkmetrics_post_handler,
         .user_ctx = &s_server.data,
     },
     {
@@ -1708,6 +1715,24 @@ static esp_err_t esp_otbr_ping_post_handler(httpd_req_t *req)
     ESP_LOGI(WEB_TAG, "<====================== Ping ==============================>");
     ESP_LOGI(WEB_TAG, "Ping completed");
     ESP_LOGI(WEB_TAG, "<==========================================================>");
+exit:
+    cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
+static esp_err_t esp_otbr_linkmetrics_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *request = httpd_request_convert2_json(req, cJSON_Object);
+    ESP_RETURN_ON_FALSE(request, ESP_FAIL, WEB_TAG, "Failed to parse the link metrics request");
+
+    cJSON *result = handle_openthread_linkmetrics_request(request);
+    cJSON *error = result ? cJSON_CreateNumber((double)OT_ERROR_NONE) : cJSON_CreateNumber((double)OT_ERROR_FAILED);
+    cJSON *message = result ? cJSON_CreateString("Link Metrics: Success") : cJSON_CreateString("Link Metrics: Failure");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+    ESP_GOTO_ON_FALSE(result, ESP_FAIL, exit, WEB_TAG, "Failed to query link metrics");
 exit:
     cJSON_Delete(request);
     cJSON_Delete(response);
