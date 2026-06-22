@@ -658,36 +658,69 @@ static void ensure_log_hook_installed(void)
 static esp_err_t copy_log_buffer_since(uint64_t requested_cursor, char **out_text, size_t *out_len,
                                        uint64_t *out_cursor, bool *out_truncated)
 {
-    uint64_t current_cursor;
-    uint64_t oldest_cursor;
-    uint64_t start_cursor;
-    size_t available_len;
-    char *buffer;
-
     ESP_RETURN_ON_FALSE(out_text && out_len && out_cursor && out_truncated, ESP_ERR_INVALID_ARG, WEB_TAG,
                         "Invalid log copy arguments");
 
+    uint64_t current_cursor;
+    uint64_t oldest_cursor;
+    uint64_t start_cursor;
+    size_t alloc_len;
+
+    // 1. First Snapshot: Determine how much memory we need right now
     taskENTER_CRITICAL(&s_log_buffer_lock);
     current_cursor = s_log_write_cursor;
-    available_len = (current_cursor > LOG_BUFFER_SIZE) ? LOG_BUFFER_SIZE : (size_t)current_cursor;
+    size_t available_len = (current_cursor > LOG_BUFFER_SIZE) ? LOG_BUFFER_SIZE : (size_t)current_cursor;
     oldest_cursor = current_cursor - available_len;
+
     start_cursor = (requested_cursor < oldest_cursor) ? oldest_cursor : requested_cursor;
-    *out_truncated = requested_cursor < oldest_cursor;
-    *out_cursor = current_cursor;
-    *out_len = (size_t)(current_cursor - start_cursor);
+    *out_truncated = (requested_cursor < oldest_cursor);
+    alloc_len = (size_t)(current_cursor - start_cursor);
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 
-    buffer = malloc(*out_len + 1);
+    // 2. Allocate Outside Critical Section
+    char *buffer = malloc(alloc_len + 1);
     ESP_RETURN_ON_FALSE(buffer, ESP_ERR_NO_MEM, WEB_TAG, "Failed to allocate log snapshot");
 
+    // 3. Second Snapshot & Fast Copy
     taskENTER_CRITICAL(&s_log_buffer_lock);
-    for (size_t index = 0; index < *out_len; ++index) {
-        buffer[index] = s_log_buffer[(start_cursor + index) % LOG_BUFFER_SIZE];
+
+    // VALIDATION: Did the buffer wrap while we were allocating memory?
+    uint64_t new_oldest_cursor = (s_log_write_cursor > LOG_BUFFER_SIZE) ? (s_log_write_cursor - LOG_BUFFER_SIZE) : 0;
+    if (start_cursor < new_oldest_cursor) {
+        start_cursor = new_oldest_cursor;
+        *out_truncated = true; // Force truncation flag since we lost data
     }
+
+    // Recalculate how much we can actually copy (capped at what we allocated)
+    uint64_t target_cursor = start_cursor + alloc_len;
+    if (target_cursor > s_log_write_cursor) {
+        target_cursor = s_log_write_cursor; // Failsafe
+    }
+    size_t actual_copy_len = (size_t)(target_cursor - start_cursor);
+
+    // OPTIMIZATION: Use memcpy instead of a byte-by-byte loop
+    if (actual_copy_len > 0) {
+        size_t start_idx = start_cursor % LOG_BUFFER_SIZE;
+        size_t first_chunk = LOG_BUFFER_SIZE - start_idx;
+
+        if (first_chunk >= actual_copy_len) {
+            // Contiguous copy
+            memcpy(buffer, &s_log_buffer[start_idx], actual_copy_len);
+        } else {
+            // Wraparound copy (requires two memcpys)
+            memcpy(buffer, &s_log_buffer[start_idx], first_chunk);
+            memcpy(buffer + first_chunk, s_log_buffer, actual_copy_len - first_chunk);
+        }
+    }
+
+    // Finalize output variables based on what was ACTUALLY copied
+    *out_cursor = target_cursor;
+    *out_len = actual_copy_len;
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 
     buffer[*out_len] = '\0';
     *out_text = buffer;
+
     return ESP_OK;
 }
 
