@@ -16,6 +16,7 @@
 #if CONFIG_OPENTHREAD_BR_SOFTAP_SETUP
 #include "esp_br_wifi_config.h"
 #endif
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
@@ -2912,6 +2913,13 @@ static httpd_handle_t *start_esp_br_http_server(const char *base_path, const cha
     httpd_server_register_http_uri(&s_server, s_web_gui_handlers, sizeof(s_web_gui_handlers) / sizeof(httpd_uri_t));
     httpd_register_uri_handler(s_server.handle, &default_uris_get);
 
+    mdns_txt_item_t http_txt[] = {
+        {"path", "/"},
+        {"fw_ver", esp_app_get_description()->version},
+        {"board", "GL-S20"},
+    };
+    mdns_service_add(NULL, "_http", "_tcp", s_server.port, http_txt, sizeof(http_txt) / sizeof(http_txt[0]));
+
     // Show the login address in the console
     ESP_LOGI(WEB_TAG, "%s\r\n", "<========server start========>");
     ESP_LOGI(WEB_TAG, "http://%s\r\n", s_server.ip);
@@ -2933,6 +2941,7 @@ void connect_handler(void *arg, esp_event_base_t event_base, int32_t event_id, v
 -----------------------------------------------------*/
 void stop_httpserver(httpd_handle_t server)
 {
+    mdns_service_remove("_http", "_tcp");
     httpd_stop(server); // Stop the httpd server
 }
 
