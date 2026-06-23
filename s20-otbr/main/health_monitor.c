@@ -163,9 +163,13 @@ static void health_monitor_task(void *arg)
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
     for (;;) {
-        xTaskNotifyWait(0, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        BaseType_t got = xTaskNotifyWait(0, 0xFFFFFFFF, NULL, pdMS_TO_TICKS(3000));
 
         esp_task_wdt_reset();
+
+        if (got != pdTRUE) {
+            continue;
+        }
 
         int64_t uptime_s = esp_timer_get_time() / 1000000;
         if (uptime_s < HEALTH_STARTUP_GRACE_S) {
@@ -262,6 +266,11 @@ esp_err_t health_monitor_init(void)
 bool health_monitor_should_start_thread(void)
 {
     return s_ot_start_allowed;
+}
+
+bool health_monitor_is_safe_mode(void)
+{
+    return s_safe_mode;
 }
 
 esp_err_t health_monitor_start(void)

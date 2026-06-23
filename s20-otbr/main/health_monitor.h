@@ -41,6 +41,13 @@ bool health_monitor_should_start_thread(void);
  */
 esp_err_t health_monitor_start(void);
 
+/**
+ * @brief Check whether the device is currently in safe mode.
+ *
+ * @return true if in safe mode, false otherwise.
+ */
+bool health_monitor_is_safe_mode(void);
+
 #ifdef __cplusplus
 }
 #endif

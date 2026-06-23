@@ -223,8 +223,6 @@ void app_main(void)
 
     sntp_init_step();
 
-    ESP_ERROR_CHECK(health_monitor_init());
-
     ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &got_ip_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(OPENTHREAD_EVENT, ESP_EVENT_ANY_ID, thread_event_handler, NULL));
@@ -250,6 +248,12 @@ void app_main(void)
 
 #if CONFIG_OPENTHREAD_BR_START_WEB
     esp_br_web_start("/spiffs");
+#endif
+
+    ESP_ERROR_CHECK(health_monitor_init());
+
+#if CONFIG_OPENTHREAD_BR_START_WEB
+    esp_br_web_set_safe_mode(health_monitor_is_safe_mode());
 #endif
 
     if (health_monitor_should_start_thread()) {

@@ -96,6 +96,8 @@ typedef struct http_server {
 
 static http_server_t s_server = {NULL, {"", ""}, "", 80}; /* the instance of server */
 
+static bool s_safe_mode = false;
+
 static portMUX_TYPE s_log_buffer_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t s_ota_mutex;
 static bool s_ota_in_progress;
@@ -2394,6 +2396,8 @@ static esp_err_t esp_otbr_config_get_handler(httpd_req_t *req)
         }
     }
 
+    cJSON_AddBoolToObject(cfg, "safe_mode", s_safe_mode);
+
     error = cJSON_CreateNumber((double)ESP_OK);
     message = cJSON_CreateString("ok");
     response = pack_response(error, cfg, message);
@@ -3036,4 +3040,9 @@ void esp_br_web_start(char *base_path)
 {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &handler_got_ip_event, base_path));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &handler_got_ip_event, base_path));
+}
+
+void esp_br_web_set_safe_mode(bool safe_mode)
+{
+    s_safe_mode = safe_mode;
 }
