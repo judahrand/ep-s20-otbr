@@ -30,6 +30,30 @@
                 </div>
             </div>
         </div>
+        <!-- Time -->
+        <div class="card section">
+            <div class="card-header">Time</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+                Configure NTP server and timezone. The NTP server is applied immediately by restarting the SNTP client.
+                Timezone uses the
+                <a href="https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html" target="_blank">POSIX TZ format</a>
+                (e.g. <code>UTC0</code>, <code>PST8PDT,M3.2.0/2,M11.1.0</code>, <code>CST-8</code>).
+            </p>
+            <div style="margin-bottom:14px">
+                <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px">NTP Server</label>
+                <input class="form-input" type="text" id="ntpInput" value="pool.ntp.org"
+                    style="max-width:320px" maxlength="63">
+            </div>
+            <div style="margin-bottom:14px">
+                <label style="font-size:13px;color:var(--text-muted);display:block;margin-bottom:4px">Timezone</label>
+                <input class="form-input" type="text" id="tzInput" value="UTC0"
+                    style="max-width:320px" maxlength="63">
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+                <button class="btn btn-primary btn-sm" id="timeSaveBtn" onclick="saveTime()">Save</button>
+                <span id="timeStatus" style="font-size:13px"></span>
+            </div>
+        </div>
         <!-- Network Addresses -->
         <div class="card section">
             <div class="flex-between mb-16">
@@ -130,6 +154,40 @@
         }
 
         loadHostname();
+
+        function loadTime() {
+            apiGet('/config').then(function (data) {
+                var r = (data && data.result) ? data.result : {};
+                if (r.ntp_srv) { document.getElementById('ntpInput').value = r.ntp_srv; }
+                if (r.timezone) { document.getElementById('tzInput').value = r.timezone; }
+            }).catch(function () { });
+        }
+
+        function saveTime() {
+            var ntp = document.getElementById('ntpInput').value.trim();
+            var tz = document.getElementById('tzInput').value.trim();
+            var status = document.getElementById('timeStatus');
+            var btn = document.getElementById('timeSaveBtn');
+            if (!ntp || !tz) {
+                status.textContent = 'Both fields are required';
+                status.style.color = 'var(--danger)';
+                return;
+            }
+            btn.disabled = true;
+            status.textContent = 'Saving...';
+            status.style.color = 'var(--text-muted)';
+            apiPut('/config', { ntp_srv: ntp, timezone: tz }).then(function () {
+                status.textContent = 'Saved';
+                status.style.color = 'var(--success)';
+            }).catch(function () {
+                status.textContent = 'Failed to save';
+                status.style.color = 'var(--danger)';
+            }).then(function () {
+                btn.disabled = false;
+            });
+        }
+
+        loadTime();
     </script>
 </body>
 

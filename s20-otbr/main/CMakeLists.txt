@@ -1,5 +1,6 @@
 idf_component_register(SRCS "esp_ot_br.c"
-                       "led.c"
+                            "led.c"
+                            "health_monitor.c"
                        INCLUDE_DIRS "."
                        REQUIRES esp_coex
                                 esp_eth
@@ -8,6 +9,8 @@ idf_component_register(SRCS "esp_ot_br.c"
                                 esp_ot_br_server
                                 esp_ot_cli_extension
                                 esp_driver_uart
+                                esp_rcp_update
+                                esp_timer
                                 mdns
                                 nvs_config
                                 nvs_flash

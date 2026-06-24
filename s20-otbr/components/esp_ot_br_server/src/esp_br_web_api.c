@@ -29,6 +29,7 @@
 #include "openthread/error.h"
 #include "openthread/instance.h"
 #include "openthread/ip6.h"
+#include "openthread/link_metrics.h"
 #include "openthread/netdata.h"
 #include "openthread/ping_sender.h"
 #include "openthread/server.h"
@@ -924,6 +925,10 @@ static thread_diagnosticTlv_set_t *s_diagnosticTlv_set = NULL;
  *   0=ExtAddress, 1=Address16, 2=Mode, 5=Route, 6=LeaderData,
  *   8=IPv6AddressList, 16=ChildTable */
 static const uint8_t kAllTlvTypes[] = {0, 1, 2, 5, 6, 8, 16};
+/* Unicast query to self also requests MAC counters (type 9).
+ * Not included in the multicast query to avoid bloating the
+ * topology response with per-router counter data. */
+static const uint8_t kSelfTlvTypes[] = {0, 1, 2, 5, 6, 8, 9, 16};
 static const char *kMulticastAddrAllRouters = "ff03::2";
 static volatile bool s_diag_collecting = false;           /* true while actively collecting responses */
 static volatile int s_diag_response_count = 0;            /* number of responses received this collection */
@@ -1038,9 +1043,9 @@ static esp_err_t build_thread_network_topology(void)
     esp_openthread_lock_acquire(portMAX_DELAY);
     otIp6Address rloc16address = *otThreadGetRloc(ins);
     otIp6Address multicastAddress;
-    ESP_GOTO_ON_FALSE(otThreadSendDiagnosticGet(ins, &rloc16address, kAllTlvTypes, sizeof(kAllTlvTypes),
-                                                &diagnosticTlv_result_handler, NULL) == OT_ERROR_NONE,
-                      ESP_FAIL, exit, API_TAG, "Fail to send diagnostic rloc16address.");
+    ESP_GOTO_ON_FALSE(otThreadSendDiagnosticGet(ins, &rloc16address, kSelfTlvTypes, sizeof(kSelfTlvTypes),
+                                                 &diagnosticTlv_result_handler, NULL) == OT_ERROR_NONE,
+                       ESP_FAIL, exit, API_TAG, "Fail to send diagnostic rloc16address.");
     ESP_GOTO_ON_FALSE(otIp6AddressFromString(kMulticastAddrAllRouters, &multicastAddress) == OT_ERROR_NONE, ESP_FAIL,
                       exit, API_TAG, "Fail to convert ipv6 to string.");
     ESP_GOTO_ON_FALSE(otThreadSendDiagnosticGet(ins, &multicastAddress, kAllTlvTypes, sizeof(kAllTlvTypes),
@@ -1564,4 +1569,126 @@ otError handle_ot_become_leader_request(void)
         ESP_LOGI(API_TAG, "BecomeLeader requested successfully");
     }
     return err;
+}
+
+/*----------------------------------------------------------------------
+                       Link Metrics Query
+----------------------------------------------------------------------*/
+#define LINKMETRICS_TIMEOUT_MS 5000
+
+static SemaphoreHandle_t s_linkmetrics_semaphore = NULL;
+static otLinkMetricsValues s_linkmetrics_values;
+static otLinkMetricsStatus s_linkmetrics_status;
+
+static void linkmetrics_report_callback(const otIp6Address *aSource, const otLinkMetricsValues *aMetricsValues,
+                                        otLinkMetricsStatus aStatus, void *aContext)
+{
+    s_linkmetrics_status = aStatus;
+    if (aMetricsValues && aStatus == OT_LINK_METRICS_STATUS_SUCCESS) {
+        memcpy(&s_linkmetrics_values, aMetricsValues, sizeof(otLinkMetricsValues));
+    } else {
+        memset(&s_linkmetrics_values, 0, sizeof(otLinkMetricsValues));
+    }
+    if (s_linkmetrics_semaphore) {
+        xSemaphoreGive(s_linkmetrics_semaphore);
+    }
+}
+
+cJSON *handle_openthread_linkmetrics_request(const cJSON *request)
+{
+    ESP_RETURN_ON_FALSE(request, NULL, API_TAG, "Invalid link metrics request");
+
+    if (!s_linkmetrics_semaphore) {
+        s_linkmetrics_semaphore = xSemaphoreCreateBinary();
+        ESP_RETURN_ON_FALSE(s_linkmetrics_semaphore, NULL, API_TAG, "Failed to create semaphore");
+    }
+
+    cJSON *addr_item = cJSON_GetObjectItemCaseSensitive(request, "address");
+    if (!cJSON_IsString(addr_item) || !addr_item->valuestring) {
+        ESP_LOGE(API_TAG, "Missing or invalid 'address' field");
+        return NULL;
+    }
+
+    otLinkMetrics metrics_flags;
+    memset(&metrics_flags, 0, sizeof(metrics_flags));
+
+    cJSON *metrics_item = cJSON_GetObjectItemCaseSensitive(request, "metrics");
+    if (cJSON_IsArray(metrics_item)) {
+        int n = cJSON_GetArraySize(metrics_item);
+        for (int i = 0; i < n; i++) {
+            cJSON *m = cJSON_GetArrayItem(metrics_item, i);
+            if (cJSON_IsString(m) && m->valuestring) {
+                if (strcmp(m->valuestring, "lqi") == 0) metrics_flags.mLqi = 1;
+                else if (strcmp(m->valuestring, "rssi") == 0) metrics_flags.mRssi = 1;
+                else if (strcmp(m->valuestring, "margin") == 0) metrics_flags.mLinkMargin = 1;
+                else if (strcmp(m->valuestring, "pdu") == 0) metrics_flags.mPduCount = 1;
+            }
+        }
+    } else {
+        metrics_flags.mLqi = 1;
+        metrics_flags.mRssi = 1;
+        metrics_flags.mLinkMargin = 1;
+    }
+
+    otIp6Address dest_addr;
+    esp_openthread_lock_acquire(portMAX_DELAY);
+    otError err = otIp6AddressFromString(addr_item->valuestring, &dest_addr);
+    if (err != OT_ERROR_NONE) {
+        esp_openthread_lock_release();
+        ESP_LOGE(API_TAG, "Failed to parse address: %s", addr_item->valuestring);
+        return NULL;
+    }
+
+    memset(&s_linkmetrics_values, 0, sizeof(s_linkmetrics_values));
+    s_linkmetrics_status = OT_LINK_METRICS_STATUS_SUCCESS;
+
+    err = otLinkMetricsQuery(esp_openthread_get_instance(), &dest_addr, 0,
+                             &metrics_flags, linkmetrics_report_callback, NULL);
+    esp_openthread_lock_release();
+
+    if (err != OT_ERROR_NONE) {
+        ESP_LOGE(API_TAG, "Failed to query link metrics: %s", otThreadErrorToString(err));
+        cJSON *result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "status", "error");
+        cJSON_AddStringToObject(result, "error", otThreadErrorToString(err));
+        return result;
+    }
+
+    if (xSemaphoreTake(s_linkmetrics_semaphore, pdMS_TO_TICKS(LINKMETRICS_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(API_TAG, "Link metrics query timed out");
+        cJSON *result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "status", "timeout");
+        return result;
+    }
+
+    cJSON *result = cJSON_CreateObject();
+    if (s_linkmetrics_status == OT_LINK_METRICS_STATUS_SUCCESS) {
+        cJSON_AddStringToObject(result, "status", "ok");
+        if (metrics_flags.mPduCount) {
+            cJSON_AddNumberToObject(result, "pdu_count", s_linkmetrics_values.mPduCountValue);
+        }
+        if (metrics_flags.mLqi) {
+            cJSON_AddNumberToObject(result, "lqi", s_linkmetrics_values.mLqiValue);
+        }
+        if (metrics_flags.mLinkMargin) {
+            cJSON_AddNumberToObject(result, "margin", s_linkmetrics_values.mLinkMarginValue);
+        }
+        if (metrics_flags.mRssi) {
+            cJSON_AddNumberToObject(result, "rssi", s_linkmetrics_values.mRssiValue);
+        }
+    } else {
+        cJSON_AddStringToObject(result, "status", "error");
+        const char *status_str = "unknown";
+        switch (s_linkmetrics_status) {
+        case OT_LINK_METRICS_STATUS_SUCCESS: status_str = "success"; break;
+        case OT_LINK_METRICS_STATUS_CANNOT_SUPPORT_NEW_SERIES: status_str = "cannot_support_new_series"; break;
+        case OT_LINK_METRICS_STATUS_SERIESID_ALREADY_REGISTERED: status_str = "seriesid_already_registered"; break;
+        case OT_LINK_METRICS_STATUS_SERIESID_NOT_RECOGNIZED: status_str = "seriesid_not_recognized"; break;
+        case OT_LINK_METRICS_STATUS_NO_MATCHING_FRAMES_RECEIVED: status_str = "no_matching_frames"; break;
+        case OT_LINK_METRICS_STATUS_OTHER_ERROR: status_str = "other_error"; break;
+        default: break;
+        }
+        cJSON_AddStringToObject(result, "error", status_str);
+    }
+    return result;
 }

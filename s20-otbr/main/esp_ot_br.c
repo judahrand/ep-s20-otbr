@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "sdkconfig.h"
 
@@ -10,6 +11,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_openthread.h"
 #include "esp_openthread_border_router.h"
 #include "esp_openthread_netif_glue.h"
@@ -21,6 +23,7 @@
 #include "esp_vfs_eventfd.h"
 #include "mdns.h"
 #include "nvs_flash.h"
+#include "protocol_examples_common.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "openthread/platform/radio.h"
@@ -32,6 +35,7 @@
 #include "nvs_config.h"
 
 #include "led.h"
+#include "health_monitor.h"
 
 #if CONFIG_EXTERNAL_COEX_ENABLE
 #include "esp_coexist.h"
@@ -149,6 +153,37 @@ static void thread_event_handler(void *esp_netif, esp_event_base_t event_base, i
     }
 }
 
+static void sntp_sync_callback(struct timeval *tv)
+{
+    char timebuf[32];
+    time_t now = tv->tv_sec;
+    struct tm timeinfo;
+    strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", localtime_r(&now, &timeinfo));
+    ESP_LOGI(TAG, "Time synchronized via NTP: %s", timebuf);
+}
+
+static void sntp_init_step(void)
+{
+    char ntp_server[64] = "pool.ntp.org";
+    char timezone[32] = "UTC0";
+
+    nvs_config_get(NVS_CONFIG_KEY_NTP_SERVER, ntp_server, sizeof(ntp_server));
+    nvs_config_get(NVS_CONFIG_KEY_TIMEZONE, timezone, sizeof(timezone));
+
+    setenv("TZ", timezone, 1);
+    tzset();
+    ESP_LOGI(TAG, "Timezone set to: %s", timezone);
+
+    esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(ntp_server);
+    sntp_cfg.sync_cb = sntp_sync_callback;
+    esp_err_t ret = esp_netif_sntp_init(&sntp_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize SNTP: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "SNTP initialized with server: %s", ntp_server);
+    }
+}
+
 void app_main(void)
 {
     // Used eventfds:
@@ -187,6 +222,8 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
+    sntp_init_step();
+
     ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID, &eth_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &got_ip_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(OPENTHREAD_EVENT, ESP_EVENT_ANY_ID, thread_event_handler, NULL));
@@ -214,5 +251,21 @@ void app_main(void)
     esp_br_web_start("/spiffs");
 #endif
 
-    launch_openthread_border_router(&openthread_config, &rcp_update_config);
+    ESP_ERROR_CHECK(health_monitor_init());
+
+#if CONFIG_OPENTHREAD_BR_START_WEB
+    esp_br_web_set_safe_mode(health_monitor_is_safe_mode());
+#endif
+
+    if (health_monitor_is_safe_mode()) {
+        ESP_LOGW(TAG, "Safe mode: starting Ethernet for web UI access");
+        ESP_ERROR_CHECK(example_connect());
+    }
+
+    if (health_monitor_should_start_thread()) {
+        launch_openthread_border_router(&openthread_config, &rcp_update_config);
+    } else {
+        ESP_LOGW(TAG, "Thread launch skipped (safe mode)");
+    }
+    ESP_ERROR_CHECK(health_monitor_start());
 }

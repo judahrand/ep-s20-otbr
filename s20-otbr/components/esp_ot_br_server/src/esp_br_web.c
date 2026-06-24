@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
+#include <errno.h>
+#include <sys/socket.h>
 
 #include "sdkconfig.h"
 
@@ -16,12 +19,15 @@
 #if CONFIG_OPENTHREAD_BR_SOFTAP_SETUP
 #include "esp_br_wifi_config.h"
 #endif
+#include "esp_app_desc.h"
 #include "esp_check.h"
+#include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif_sntp.h"
 #include "esp_openthread.h"
 #include "esp_openthread_border_router.h"
 #include "esp_ot_ota_commands.h"
@@ -91,6 +97,8 @@ typedef struct http_server {
 } http_server_t;
 
 static http_server_t s_server = {NULL, {"", ""}, "", 80}; /* the instance of server */
+
+static bool s_safe_mode = false;
 
 static portMUX_TYPE s_log_buffer_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t s_ota_mutex;
@@ -277,6 +285,7 @@ static esp_err_t esp_otbr_network_topology_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_current_node_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_logs_stream_get_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ping_post_handler(httpd_req_t *req);
+static esp_err_t esp_otbr_linkmetrics_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_post_handler(httpd_req_t *req);
 static esp_err_t esp_otbr_ota_upload_app_post_handler(httpd_req_t *req);
@@ -362,6 +371,12 @@ static httpd_uri_t s_web_gui_handlers[] = {
         .uri = ESP_OT_REST_API_PING_PATH,
         .method = HTTP_POST,
         .handler = esp_otbr_ping_post_handler,
+        .user_ctx = &s_server.data,
+    },
+    {
+        .uri = ESP_OT_REST_API_LINKMETRICS_PATH,
+        .method = HTTP_POST,
+        .handler = esp_otbr_linkmetrics_post_handler,
         .user_ctx = &s_server.data,
     },
     {
@@ -592,10 +607,15 @@ static void log_buffer_write(const char *text, size_t len)
     }
 
     taskENTER_CRITICAL(&s_log_buffer_lock);
-    for (size_t index = 0; index < len; ++index) {
-        s_log_buffer[s_log_write_cursor % LOG_BUFFER_SIZE] = text[index];
-        ++s_log_write_cursor;
+    size_t start_idx = s_log_write_cursor % LOG_BUFFER_SIZE;
+    size_t first_chunk = LOG_BUFFER_SIZE - start_idx;
+    if (first_chunk >= len) {
+        memcpy(&s_log_buffer[start_idx], text, len);
+    } else {
+        memcpy(&s_log_buffer[start_idx], text, first_chunk);
+        memcpy(s_log_buffer, text + first_chunk, len - first_chunk);
     }
+    s_log_write_cursor += len;
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 }
 
@@ -630,7 +650,7 @@ static int web_log_vprintf(const char *fmt, va_list args)
         return ret;
     }
 
-    char *heap_buf = malloc((size_t)needed + 1);
+    char *heap_buf = heap_caps_malloc((size_t)needed + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!heap_buf) {
         return ret;
     }
@@ -657,36 +677,75 @@ static void ensure_log_hook_installed(void)
 static esp_err_t copy_log_buffer_since(uint64_t requested_cursor, char **out_text, size_t *out_len,
                                        uint64_t *out_cursor, bool *out_truncated)
 {
-    uint64_t current_cursor;
-    uint64_t oldest_cursor;
-    uint64_t start_cursor;
-    size_t available_len;
-    char *buffer;
-
     ESP_RETURN_ON_FALSE(out_text && out_len && out_cursor && out_truncated, ESP_ERR_INVALID_ARG, WEB_TAG,
                         "Invalid log copy arguments");
 
+    uint64_t current_cursor;
+    uint64_t oldest_cursor;
+    uint64_t start_cursor;
+    size_t alloc_len;
+
+    // 1. First Snapshot: Determine how much memory we need right now
     taskENTER_CRITICAL(&s_log_buffer_lock);
     current_cursor = s_log_write_cursor;
-    available_len = (current_cursor > LOG_BUFFER_SIZE) ? LOG_BUFFER_SIZE : (size_t)current_cursor;
+    size_t available_len = (current_cursor > LOG_BUFFER_SIZE) ? LOG_BUFFER_SIZE : (size_t)current_cursor;
     oldest_cursor = current_cursor - available_len;
+
     start_cursor = (requested_cursor < oldest_cursor) ? oldest_cursor : requested_cursor;
-    *out_truncated = requested_cursor < oldest_cursor;
-    *out_cursor = current_cursor;
-    *out_len = (size_t)(current_cursor - start_cursor);
+    *out_truncated = (requested_cursor < oldest_cursor);
+    alloc_len = (size_t)(current_cursor - start_cursor);
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 
-    buffer = malloc(*out_len + 1);
-    ESP_RETURN_ON_FALSE(buffer, ESP_ERR_NO_MEM, WEB_TAG, "Failed to allocate log snapshot");
-
-    taskENTER_CRITICAL(&s_log_buffer_lock);
-    for (size_t index = 0; index < *out_len; ++index) {
-        buffer[index] = s_log_buffer[(start_cursor + index) % LOG_BUFFER_SIZE];
+    // 2. Allocate Outside Critical Section (use SPIRAM to avoid internal RAM fragmentation)
+    char *buffer = heap_caps_malloc(alloc_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buffer) {
+        *out_text = NULL;
+        *out_len = 0;
+        *out_cursor = requested_cursor;
+        *out_truncated = false;
+        return ESP_OK;
     }
+
+    // 3. Second Snapshot & Fast Copy
+    taskENTER_CRITICAL(&s_log_buffer_lock);
+
+    // VALIDATION: Did the buffer wrap while we were allocating memory?
+    uint64_t new_oldest_cursor = (s_log_write_cursor > LOG_BUFFER_SIZE) ? (s_log_write_cursor - LOG_BUFFER_SIZE) : 0;
+    if (start_cursor < new_oldest_cursor) {
+        start_cursor = new_oldest_cursor;
+        *out_truncated = true; // Force truncation flag since we lost data
+    }
+
+    // Recalculate how much we can actually copy (capped at what we allocated)
+    uint64_t target_cursor = start_cursor + alloc_len;
+    if (target_cursor > s_log_write_cursor) {
+        target_cursor = s_log_write_cursor; // Failsafe
+    }
+    size_t actual_copy_len = (size_t)(target_cursor - start_cursor);
+
+    // OPTIMIZATION: Use memcpy instead of a byte-by-byte loop
+    if (actual_copy_len > 0) {
+        size_t start_idx = start_cursor % LOG_BUFFER_SIZE;
+        size_t first_chunk = LOG_BUFFER_SIZE - start_idx;
+
+        if (first_chunk >= actual_copy_len) {
+            // Contiguous copy
+            memcpy(buffer, &s_log_buffer[start_idx], actual_copy_len);
+        } else {
+            // Wraparound copy (requires two memcpys)
+            memcpy(buffer, &s_log_buffer[start_idx], first_chunk);
+            memcpy(buffer + first_chunk, s_log_buffer, actual_copy_len - first_chunk);
+        }
+    }
+
+    // Finalize output variables based on what was ACTUALLY copied
+    *out_cursor = target_cursor;
+    *out_len = actual_copy_len;
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 
     buffer[*out_len] = '\0';
     *out_text = buffer;
+
     return ESP_OK;
 }
 
@@ -724,30 +783,29 @@ static esp_err_t httpd_send_sse_event(httpd_req_t *req, const char *event_name, 
 
     if (event_name && event_name[0] != '\0') {
         snprintf(header, sizeof(header), "event: %s\n", event_name);
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, header), WEB_TAG, "Failed to send SSE event name");
+        if (httpd_resp_sendstr_chunk(req, header) != ESP_OK) return ESP_FAIL;
     }
 
     snprintf(header, sizeof(header), "id: %llu\n", (unsigned long long)cursor);
-    ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, header), WEB_TAG, "Failed to send SSE event id");
+    if (httpd_resp_sendstr_chunk(req, header) != ESP_OK) return ESP_FAIL;
 
     while (1) {
         newline = strchr(line_start, '\n');
         line_end = newline ? newline : line_start + strlen(line_start);
 
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "data:"), WEB_TAG, "Failed to send SSE prefix");
+        if (httpd_resp_sendstr_chunk(req, "data:") != ESP_OK) return ESP_FAIL;
         if (line_end > line_start) {
-            ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, " "), WEB_TAG, "Failed to send SSE separator");
-            ret = httpd_resp_send_chunk(req, line_start, (ssize_t)(line_end - line_start));
-            ESP_RETURN_ON_ERROR(ret, WEB_TAG, "Failed to send SSE line");
+            if (httpd_resp_sendstr_chunk(req, " ") != ESP_OK) return ESP_FAIL;
+            if (httpd_resp_send_chunk(req, line_start, (ssize_t)(line_end - line_start)) != ESP_OK) return ESP_FAIL;
         }
 
         if (newline) {
-            ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "\n"), WEB_TAG, "Failed to terminate SSE line");
+            if (httpd_resp_sendstr_chunk(req, "\n") != ESP_OK) return ESP_FAIL;
             line_start = newline + 1;
             continue;
         }
 
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "\n\n"), WEB_TAG, "Failed to finalize SSE event");
+        if (httpd_resp_sendstr_chunk(req, "\n\n") != ESP_OK) return ESP_FAIL;
         return ESP_OK;
     }
 }
@@ -847,12 +905,13 @@ static void ota_release_slot(void)
 static void ota_update_task(void *ctx)
 {
     ota_request_context_t *request = (ota_request_context_t *)ctx;
-    const char *cert_pem = (const char *)server_cert_pem_start;
     esp_http_client_config_t http_config = {
         .url = request->url,
-        .cert_pem = cert_pem,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = NULL,
         .keep_alive_enable = true,
+        .buffer_size = 8192,
+        .buffer_size_tx = 2048,
     };
     esp_err_t err = esp_br_http_ota(&http_config);
 
@@ -1676,6 +1735,24 @@ exit:
     return ret;
 }
 
+static esp_err_t esp_otbr_linkmetrics_post_handler(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    cJSON *request = httpd_request_convert2_json(req, cJSON_Object);
+    ESP_RETURN_ON_FALSE(request, ESP_FAIL, WEB_TAG, "Failed to parse the link metrics request");
+
+    cJSON *result = handle_openthread_linkmetrics_request(request);
+    cJSON *error = result ? cJSON_CreateNumber((double)OT_ERROR_NONE) : cJSON_CreateNumber((double)OT_ERROR_FAILED);
+    cJSON *message = result ? cJSON_CreateString("Link Metrics: Success") : cJSON_CreateString("Link Metrics: Failure");
+    cJSON *response = pack_response(error, result, message);
+    ESP_GOTO_ON_ERROR(httpd_send_packet(req, response), exit, WEB_TAG, "Failed to respond %s", req->uri);
+    ESP_GOTO_ON_FALSE(result, ESP_FAIL, exit, WEB_TAG, "Failed to query link metrics");
+exit:
+    cJSON_Delete(request);
+    cJSON_Delete(response);
+    return ret;
+}
+
 static esp_err_t esp_otbr_logs_stream_get_handler(httpd_req_t *req)
 {
     esp_err_t ret = ESP_OK;
@@ -1690,9 +1767,18 @@ static esp_err_t esp_otbr_logs_stream_get_handler(httpd_req_t *req)
                       "Failed to set SSE connection header");
     ESP_GOTO_ON_ERROR(httpd_resp_set_hdr(req, "X-Accel-Buffering", "no"), exit, WEB_TAG, "Failed to disable buffering");
     ESP_GOTO_ON_ERROR(httpd_resp_sendstr_chunk(req, "retry: 1000\n\n"), exit, WEB_TAG,
-                      "Failed to initialize SSE stream");
+                       "Failed to initialize SSE stream");
+
+    int client_fd = httpd_req_to_sockfd(req);
 
     while (1) {
+        char peek_buf[1];
+        int peek_ret = recv(client_fd, peek_buf, sizeof(peek_buf), MSG_PEEK | MSG_DONTWAIT);
+        if (peek_ret == 0 || (peek_ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            client_closed = true;
+            goto exit;
+        }
+
         char *log_text = NULL;
         size_t log_len = 0;
         uint64_t next_cursor = cursor;
@@ -2319,7 +2405,9 @@ static esp_err_t esp_otbr_config_get_handler(httpd_req_t *req)
 
     /* Read each well-known key; omit keys that have no stored value */
     static const char *const keys[] = {
-        NVS_CONFIG_KEY_HOSTNAME, NVS_CONFIG_KEY_WIFI_SSID, NVS_CONFIG_KEY_TH_TXPWR, NVS_CONFIG_KEY_TH_LDR_WT, NULL,
+        NVS_CONFIG_KEY_HOSTNAME,   NVS_CONFIG_KEY_WIFI_SSID, NVS_CONFIG_KEY_TH_TXPWR,
+        NVS_CONFIG_KEY_TH_LDR_WT,  NVS_CONFIG_KEY_NTP_SERVER, NVS_CONFIG_KEY_TIMEZONE,
+        NULL,
     };
     for (int i = 0; keys[i] != NULL; i++) {
         if (nvs_config_get(keys[i], buf, sizeof(buf)) == ESP_OK) {
@@ -2328,6 +2416,8 @@ static esp_err_t esp_otbr_config_get_handler(httpd_req_t *req)
             cJSON_AddNullToObject(cfg, keys[i]);
         }
     }
+
+    cJSON_AddBoolToObject(cfg, "safe_mode", s_safe_mode);
 
     error = cJSON_CreateNumber((double)ESP_OK);
     message = cJSON_CreateString("ok");
@@ -2398,6 +2488,25 @@ static esp_err_t esp_otbr_config_put_handler(httpd_req_t *req)
         if (nvs_config_set(NVS_CONFIG_KEY_TH_LDR_WT, ldrwt_j->valuestring) == ESP_OK) {
             uint8_t ldrwt = (uint8_t)atoi(ldrwt_j->valuestring);
             otThreadSetLocalLeaderWeight(esp_openthread_get_instance(), ldrwt);
+            any_set = true;
+        }
+    }
+
+    cJSON *ntp_j = cJSON_GetObjectItemCaseSensitive(request, NVS_CONFIG_KEY_NTP_SERVER);
+    if (cJSON_IsString(ntp_j) && ntp_j->valuestring && ntp_j->valuestring[0] != '\0') {
+        if (nvs_config_set(NVS_CONFIG_KEY_NTP_SERVER, ntp_j->valuestring) == ESP_OK) {
+            esp_netif_sntp_deinit();
+            esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG(ntp_j->valuestring);
+            esp_netif_sntp_init(&sntp_cfg);
+            any_set = true;
+        }
+    }
+
+    cJSON *tz_j = cJSON_GetObjectItemCaseSensitive(request, NVS_CONFIG_KEY_TIMEZONE);
+    if (cJSON_IsString(tz_j) && tz_j->valuestring && tz_j->valuestring[0] != '\0') {
+        if (nvs_config_set(NVS_CONFIG_KEY_TIMEZONE, tz_j->valuestring) == ESP_OK) {
+            setenv("TZ", tz_j->valuestring, 1);
+            tzset();
             any_set = true;
         }
     }
@@ -2645,22 +2754,30 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
  */
 static esp_err_t httpd_resp_send_spiffs_file(httpd_req_t *req, char *path)
 {
-    // ESP_LOGI(WEB_TAG, "Reading %s", path);
-
     FILE *fp = fopen(path, "r");
-    ESP_RETURN_ON_FALSE(fp, ESP_FAIL, WEB_TAG, "Failed to open %s file", path);
+    if (!fp) {
+        ESP_LOGE(WEB_TAG, "SPIFFS fopen failed: %s", path);
+        return ESP_FAIL;
+    }
 
     char buf[FILE_CHUNK_SIZE];
     size_t bytes_read;
+    size_t total_sent = 0;
     while ((bytes_read = fread(buf, 1, sizeof(buf), fp)) > 0) {
         if (httpd_resp_send_chunk(req, buf, bytes_read) != ESP_OK) {
+            ESP_LOGE(WEB_TAG, "SPIFFS send_chunk failed: %s (sent %zu/%zu bytes)",
+                     path, total_sent, total_sent + bytes_read);
             fclose(fp);
-            /* Abort chunked transfer on send error */
             httpd_resp_send_chunk(req, NULL, 0);
             return ESP_FAIL;
         }
+        total_sent += bytes_read;
     }
-    return fclose(fp) == 0 ? ESP_OK : ESP_FAIL;
+    int fc_ret = fclose(fp);
+    if (fc_ret != 0) {
+        ESP_LOGW(WEB_TAG, "SPIFFS fclose failed: %s (ret=%d)", path, fc_ret);
+    }
+    return fc_ret == 0 ? ESP_OK : ESP_FAIL;
 }
 
 /**
@@ -2859,7 +2976,10 @@ static httpd_handle_t *start_esp_br_http_server(const char *base_path, const cha
     config.max_resp_headers = (sizeof(s_resource_handlers) + sizeof(s_web_gui_handlers)) / sizeof(httpd_uri_t) + 2;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.stack_size = 8 * 1024;
-    config.max_open_sockets = 7;
+    config.max_open_sockets = 13;
+    config.backlog_conn = 7;
+    config.send_wait_timeout = 30;
+    config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
     s_server.port = config.server_port;
 
@@ -2876,6 +2996,13 @@ static httpd_handle_t *start_esp_br_http_server(const char *base_path, const cha
     httpd_server_register_http_uri(&s_server, s_resource_handlers, sizeof(s_resource_handlers) / sizeof(httpd_uri_t));
     httpd_server_register_http_uri(&s_server, s_web_gui_handlers, sizeof(s_web_gui_handlers) / sizeof(httpd_uri_t));
     httpd_register_uri_handler(s_server.handle, &default_uris_get);
+
+    mdns_txt_item_t http_txt[] = {
+        {"path", "/"},
+        {"fw_ver", esp_app_get_description()->version},
+        {"board", "GL-S20"},
+    };
+    mdns_service_add(NULL, "_http", "_tcp", s_server.port, http_txt, sizeof(http_txt) / sizeof(http_txt[0]));
 
     // Show the login address in the console
     ESP_LOGI(WEB_TAG, "%s\r\n", "<========server start========>");
@@ -2898,6 +3025,7 @@ void connect_handler(void *arg, esp_event_base_t event_base, int32_t event_id, v
 -----------------------------------------------------*/
 void stop_httpserver(httpd_handle_t server)
 {
+    mdns_service_remove("_http", "_tcp");
     httpd_stop(server); // Stop the httpd server
 }
 
@@ -2944,4 +3072,9 @@ void esp_br_web_start(char *base_path)
 {
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &handler_got_ip_event, base_path));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &handler_got_ip_event, base_path));
+}
+
+void esp_br_web_set_safe_mode(bool safe_mode)
+{
+    s_safe_mode = safe_mode;
 }

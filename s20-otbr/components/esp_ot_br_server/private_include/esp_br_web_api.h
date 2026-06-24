@@ -60,6 +60,7 @@ void esp_br_web_api_init(void);
 #define ESP_OT_REST_API_MESH_LEADER_WEIGHT_PATH "/mesh/leader_weight"
 #define ESP_OT_REST_API_MESH_BECOME_LEADER_PATH "/mesh/leader_become"
 #define ESP_OT_REST_API_ETHERNET_IPADDR_PATH "/ethernet/ipaddr"
+#define ESP_OT_REST_API_LINKMETRICS_PATH "/linkmetrics"
 /* To implement in the future */
 #define ESP_OT_REST_API_COMMISSION_PATH "/commission"
 #define ESP_OT_REST_API_NETWORK "/networks"
@@ -351,6 +352,15 @@ void handle_ot_leader_weight_put_request(uint8_t weight);
  *      -   OT_ERROR_INVALID_STATE  :   Device is not attached as a router.
  */
 otError handle_ot_become_leader_request(void);
+
+/**
+ * @brief Query link metrics from a direct neighbor.
+ *
+ * @param[in] request   A cJSON object containing "address" (IPv6 link-local string)
+ *                      and "metrics" (array of strings: "lqi", "rssi", "margin", "pdu").
+ * @return A cJSON object with metric values, or NULL on failure.
+ */
+cJSON *handle_openthread_linkmetrics_request(const cJSON *request);
 
 #ifdef __cplusplus
 }

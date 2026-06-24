@@ -56,6 +56,50 @@
             <div id="pingSummary" class="mt-16"></div>
         </div>
 
+        <!-- Link Metrics Section -->
+        <div class="card section">
+            <div class="card-header">Link Metrics Query</div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+                Query fine-grained link metrics (LQI, RSSI, Link Margin, PDU Count) from a direct Thread neighbor.
+                Only works with Thread 1.2+ devices that are direct neighbors of the Border Router.
+            </p>
+            <form id="lmForm" onsubmit="return false">
+                <div class="form-group">
+                    <label class="form-label">Neighbor Link-Local Address *</label>
+                    <input class="form-input" name="address" id="lmAddr" type="text"
+                        placeholder="e.g. fe80::1234:5678:abcd:ef01" required>
+                    <div class="form-hint">Enter the link-local IPv6 address of a direct neighbor</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Metrics</label>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+                            <input type="checkbox" id="lmLqi" checked> LQI
+                        </label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+                            <input type="checkbox" id="lmRssi" checked> RSSI
+                        </label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+                            <input type="checkbox" id="lmMargin" checked> Link Margin
+                        </label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+                            <input type="checkbox" id="lmPdu"> PDU Count
+                        </label>
+                    </div>
+                </div>
+                <div class="flex-between">
+                    <button type="button" class="btn btn-primary" id="lmBtn" onclick="startLinkMetrics()">Query</button>
+                    <span id="lmStatus" style="font-size:13px"></span>
+                </div>
+            </form>
+        </div>
+
+        <!-- Link Metrics Results -->
+        <div class="card section hidden" id="lmResults">
+            <div class="card-header">Link Metrics Results</div>
+            <div id="lmData"></div>
+        </div>
+
     </div>
     <div class="footer">Copyright &copy; 2026 Espressif Systems. All rights reserved.</div>
 
@@ -155,6 +199,83 @@
                 status.textContent = 'Connection error';
                 status.style.color = 'var(--danger)';
                 repliesEl.innerHTML = '<div class="text-muted text-center">Failed to connect to the device.</div>';
+                showToast('Connection error', 'error');
+            });
+        }
+
+        function startLinkMetrics() {
+            var addr = document.getElementById('lmAddr').value.trim();
+            if (!addr) {
+                showToast('Please enter a link-local address', 'error');
+                return;
+            }
+
+            var metrics = [];
+            if (document.getElementById('lmLqi').checked) metrics.push('lqi');
+            if (document.getElementById('lmRssi').checked) metrics.push('rssi');
+            if (document.getElementById('lmMargin').checked) metrics.push('margin');
+            if (document.getElementById('lmPdu').checked) metrics.push('pdu');
+            if (metrics.length === 0) {
+                showToast('Select at least one metric', 'error');
+                return;
+            }
+
+            var btn = document.getElementById('lmBtn');
+            var status = document.getElementById('lmStatus');
+            var results = document.getElementById('lmResults');
+            var dataEl = document.getElementById('lmData');
+
+            btn.disabled = true;
+            btn.textContent = 'Querying...';
+            status.textContent = 'Querying ' + addr + '...';
+            status.style.color = 'var(--primary)';
+            results.classList.remove('hidden');
+            dataEl.innerHTML = '<div class="text-center"><div class="spinner" style="width:24px;height:24px;margin:8px auto"></div><div class="text-muted" style="font-size:13px">Waiting for response...</div></div>';
+
+            apiPost('/linkmetrics', { address: addr, metrics: metrics }).then(function (data) {
+                btn.disabled = false;
+                btn.textContent = 'Query';
+
+                if (data.error !== 0 || !data.result) {
+                    status.textContent = data.message || 'Query failed';
+                    status.style.color = 'var(--danger)';
+                    dataEl.innerHTML = '<div class="text-muted text-center">Query failed – ensure the address is a direct neighbor and supports Thread 1.2+.</div>';
+                    return;
+                }
+
+                var r = data.result;
+                if (r.status === 'ok') {
+                    status.textContent = 'Success';
+                    status.style.color = 'var(--success)';
+                    var html = '<div class="info-row"><span class="info-label">Neighbor</span><span class="info-value mono">' + escapeHtml(addr) + '</span></div>';
+                    if (r.lqi !== undefined) {
+                        html += '<div class="info-row"><span class="info-label">LQI</span><span class="info-value">' + escapeHtml(r.lqi) + ' <span class="text-muted">(0-255)</span></span></div>';
+                    }
+                    if (r.rssi !== undefined) {
+                        html += '<div class="info-row"><span class="info-label">RSSI</span><span class="info-value">' + escapeHtml(r.rssi) + ' dBm <span class="text-muted">(-128 to 0)</span></span></div>';
+                    }
+                    if (r.margin !== undefined) {
+                        html += '<div class="info-row"><span class="info-label">Link Margin</span><span class="info-value">' + escapeHtml(r.margin) + ' dB <span class="text-muted">(0-130)</span></span></div>';
+                    }
+                    if (r.pdu_count !== undefined) {
+                        html += '<div class="info-row"><span class="info-label">PDU Count</span><span class="info-value">' + escapeHtml(r.pdu_count) + '</span></div>';
+                    }
+                    dataEl.innerHTML = html;
+                } else if (r.status === 'timeout') {
+                    status.textContent = 'Timeout';
+                    status.style.color = 'var(--danger)';
+                    dataEl.innerHTML = '<div class="text-muted text-center">No response within 5 seconds. The neighbor may not support Link Metrics (Thread 1.2+ required).</div>';
+                } else {
+                    status.textContent = 'Error: ' + (r.error || 'unknown');
+                    status.style.color = 'var(--danger)';
+                    dataEl.innerHTML = '<div class="text-muted text-center">Query failed: ' + escapeHtml(r.error || 'unknown error') + '</div>';
+                }
+            }).catch(function () {
+                btn.disabled = false;
+                btn.textContent = 'Query';
+                status.textContent = 'Connection error';
+                status.style.color = 'var(--danger)';
+                dataEl.innerHTML = '<div class="text-muted text-center">Failed to connect to the device.</div>';
                 showToast('Connection error', 'error');
             });
         }
