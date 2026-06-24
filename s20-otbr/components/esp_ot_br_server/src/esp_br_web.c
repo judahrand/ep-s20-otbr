@@ -6,6 +6,8 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include <errno.h>
+#include <sys/socket.h>
 
 #include "sdkconfig.h"
 
@@ -605,10 +607,15 @@ static void log_buffer_write(const char *text, size_t len)
     }
 
     taskENTER_CRITICAL(&s_log_buffer_lock);
-    for (size_t index = 0; index < len; ++index) {
-        s_log_buffer[s_log_write_cursor % LOG_BUFFER_SIZE] = text[index];
-        ++s_log_write_cursor;
+    size_t start_idx = s_log_write_cursor % LOG_BUFFER_SIZE;
+    size_t first_chunk = LOG_BUFFER_SIZE - start_idx;
+    if (first_chunk >= len) {
+        memcpy(&s_log_buffer[start_idx], text, len);
+    } else {
+        memcpy(&s_log_buffer[start_idx], text, first_chunk);
+        memcpy(s_log_buffer, text + first_chunk, len - first_chunk);
     }
+    s_log_write_cursor += len;
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 }
 
@@ -643,7 +650,7 @@ static int web_log_vprintf(const char *fmt, va_list args)
         return ret;
     }
 
-    char *heap_buf = malloc((size_t)needed + 1);
+    char *heap_buf = heap_caps_malloc((size_t)needed + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!heap_buf) {
         return ret;
     }
@@ -689,9 +696,15 @@ static esp_err_t copy_log_buffer_since(uint64_t requested_cursor, char **out_tex
     alloc_len = (size_t)(current_cursor - start_cursor);
     taskEXIT_CRITICAL(&s_log_buffer_lock);
 
-    // 2. Allocate Outside Critical Section
-    char *buffer = malloc(alloc_len + 1);
-    ESP_RETURN_ON_FALSE(buffer, ESP_ERR_NO_MEM, WEB_TAG, "Failed to allocate log snapshot");
+    // 2. Allocate Outside Critical Section (use SPIRAM to avoid internal RAM fragmentation)
+    char *buffer = heap_caps_malloc(alloc_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buffer) {
+        *out_text = NULL;
+        *out_len = 0;
+        *out_cursor = requested_cursor;
+        *out_truncated = false;
+        return ESP_OK;
+    }
 
     // 3. Second Snapshot & Fast Copy
     taskENTER_CRITICAL(&s_log_buffer_lock);
@@ -770,30 +783,29 @@ static esp_err_t httpd_send_sse_event(httpd_req_t *req, const char *event_name, 
 
     if (event_name && event_name[0] != '\0') {
         snprintf(header, sizeof(header), "event: %s\n", event_name);
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, header), WEB_TAG, "Failed to send SSE event name");
+        if (httpd_resp_sendstr_chunk(req, header) != ESP_OK) return ESP_FAIL;
     }
 
     snprintf(header, sizeof(header), "id: %llu\n", (unsigned long long)cursor);
-    ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, header), WEB_TAG, "Failed to send SSE event id");
+    if (httpd_resp_sendstr_chunk(req, header) != ESP_OK) return ESP_FAIL;
 
     while (1) {
         newline = strchr(line_start, '\n');
         line_end = newline ? newline : line_start + strlen(line_start);
 
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "data:"), WEB_TAG, "Failed to send SSE prefix");
+        if (httpd_resp_sendstr_chunk(req, "data:") != ESP_OK) return ESP_FAIL;
         if (line_end > line_start) {
-            ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, " "), WEB_TAG, "Failed to send SSE separator");
-            ret = httpd_resp_send_chunk(req, line_start, (ssize_t)(line_end - line_start));
-            ESP_RETURN_ON_ERROR(ret, WEB_TAG, "Failed to send SSE line");
+            if (httpd_resp_sendstr_chunk(req, " ") != ESP_OK) return ESP_FAIL;
+            if (httpd_resp_send_chunk(req, line_start, (ssize_t)(line_end - line_start)) != ESP_OK) return ESP_FAIL;
         }
 
         if (newline) {
-            ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "\n"), WEB_TAG, "Failed to terminate SSE line");
+            if (httpd_resp_sendstr_chunk(req, "\n") != ESP_OK) return ESP_FAIL;
             line_start = newline + 1;
             continue;
         }
 
-        ESP_RETURN_ON_ERROR(httpd_resp_sendstr_chunk(req, "\n\n"), WEB_TAG, "Failed to finalize SSE event");
+        if (httpd_resp_sendstr_chunk(req, "\n\n") != ESP_OK) return ESP_FAIL;
         return ESP_OK;
     }
 }
@@ -1755,9 +1767,18 @@ static esp_err_t esp_otbr_logs_stream_get_handler(httpd_req_t *req)
                       "Failed to set SSE connection header");
     ESP_GOTO_ON_ERROR(httpd_resp_set_hdr(req, "X-Accel-Buffering", "no"), exit, WEB_TAG, "Failed to disable buffering");
     ESP_GOTO_ON_ERROR(httpd_resp_sendstr_chunk(req, "retry: 1000\n\n"), exit, WEB_TAG,
-                      "Failed to initialize SSE stream");
+                       "Failed to initialize SSE stream");
+
+    int client_fd = httpd_req_to_sockfd(req);
 
     while (1) {
+        char peek_buf[1];
+        int peek_ret = recv(client_fd, peek_buf, sizeof(peek_buf), MSG_PEEK | MSG_DONTWAIT);
+        if (peek_ret == 0 || (peek_ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            client_closed = true;
+            goto exit;
+        }
+
         char *log_text = NULL;
         size_t log_len = 0;
         uint64_t next_cursor = cursor;
@@ -2733,22 +2754,30 @@ static esp_err_t favicon_get_handler(httpd_req_t *req)
  */
 static esp_err_t httpd_resp_send_spiffs_file(httpd_req_t *req, char *path)
 {
-    // ESP_LOGI(WEB_TAG, "Reading %s", path);
-
     FILE *fp = fopen(path, "r");
-    ESP_RETURN_ON_FALSE(fp, ESP_FAIL, WEB_TAG, "Failed to open %s file", path);
+    if (!fp) {
+        ESP_LOGE(WEB_TAG, "SPIFFS fopen failed: %s", path);
+        return ESP_FAIL;
+    }
 
     char buf[FILE_CHUNK_SIZE];
     size_t bytes_read;
+    size_t total_sent = 0;
     while ((bytes_read = fread(buf, 1, sizeof(buf), fp)) > 0) {
         if (httpd_resp_send_chunk(req, buf, bytes_read) != ESP_OK) {
+            ESP_LOGE(WEB_TAG, "SPIFFS send_chunk failed: %s (sent %zu/%zu bytes)",
+                     path, total_sent, total_sent + bytes_read);
             fclose(fp);
-            /* Abort chunked transfer on send error */
             httpd_resp_send_chunk(req, NULL, 0);
             return ESP_FAIL;
         }
+        total_sent += bytes_read;
     }
-    return fclose(fp) == 0 ? ESP_OK : ESP_FAIL;
+    int fc_ret = fclose(fp);
+    if (fc_ret != 0) {
+        ESP_LOGW(WEB_TAG, "SPIFFS fclose failed: %s (ret=%d)", path, fc_ret);
+    }
+    return fc_ret == 0 ? ESP_OK : ESP_FAIL;
 }
 
 /**
@@ -2947,7 +2976,10 @@ static httpd_handle_t *start_esp_br_http_server(const char *base_path, const cha
     config.max_resp_headers = (sizeof(s_resource_handlers) + sizeof(s_web_gui_handlers)) / sizeof(httpd_uri_t) + 2;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.stack_size = 8 * 1024;
-    config.max_open_sockets = 7;
+    config.max_open_sockets = 13;
+    config.backlog_conn = 7;
+    config.send_wait_timeout = 30;
+    config.recv_wait_timeout = 30;
     config.lru_purge_enable = true;
     s_server.port = config.server_port;
 

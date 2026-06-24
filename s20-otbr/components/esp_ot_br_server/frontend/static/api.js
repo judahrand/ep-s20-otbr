@@ -199,27 +199,37 @@ function disableManagementPage() {
   nav.innerHTML = html;
 })();
 
-/* Check for safe mode and show a banner if active. */
+/* Check for safe mode and show a banner if active.
+   Cached in sessionStorage so we only fetch /config once per session. */
 (function () {
-  apiGet('/config').then(function (data) {
-    if (data && data.result && data.result.safe_mode === true) {
-      var container = document.querySelector('.container');
-      if (container && !document.getElementById('_safeModeBanner')) {
-        var banner = document.createElement('div');
-        banner.id = '_safeModeBanner';
-        banner.className = 'disabled-banner';
-        banner.style.background = '#f44336';
-        banner.style.color = '#fff';
-        banner.style.padding = '12px 16px';
-        banner.style.borderRadius = '6px';
-        banner.style.marginBottom = '16px';
-        banner.style.fontWeight = '600';
-        banner.innerHTML = 'SAFE MODE: Thread is not running due to repeated crashes. ' +
-          'The device will automatically recover in a few minutes. ' +
-          'The web UI is available for diagnostics and OTA updates. ' +
-          '<a href="/advanced.html" style="color:#fff;text-decoration:underline">Go to Advanced</a> to restart manually.';
-        container.insertBefore(banner, container.firstChild);
-      }
+  var cached = sessionStorage.getItem('_safeMode');
+  if (cached === 'true') {
+    showSafeModeBanner();
+  } else if (cached === null) {
+    apiGet('/config').then(function (data) {
+      var safe = (data && data.result && data.result.safe_mode === true);
+      sessionStorage.setItem('_safeMode', safe ? 'true' : 'false');
+      if (safe) showSafeModeBanner();
+    }).catch(function () { });
+  }
+
+  function showSafeModeBanner() {
+    var container = document.querySelector('.container');
+    if (container && !document.getElementById('_safeModeBanner')) {
+      var banner = document.createElement('div');
+      banner.id = '_safeModeBanner';
+      banner.className = 'disabled-banner';
+      banner.style.background = '#f44336';
+      banner.style.color = '#fff';
+      banner.style.padding = '12px 16px';
+      banner.style.borderRadius = '6px';
+      banner.style.marginBottom = '16px';
+      banner.style.fontWeight = '600';
+      banner.innerHTML = 'SAFE MODE: Thread is not running due to repeated crashes. ' +
+        'The device will automatically recover in a few minutes. ' +
+        'The web UI is available for diagnostics and OTA updates. ' +
+        '<a href="/advanced.html" style="color:#fff;text-decoration:underline">Go to Advanced</a> to restart manually.';
+      container.insertBefore(banner, container.firstChild);
     }
-  }).catch(function () { });
+  }
 })();

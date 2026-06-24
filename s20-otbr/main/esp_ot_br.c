@@ -23,6 +23,7 @@
 #include "esp_vfs_eventfd.h"
 #include "mdns.h"
 #include "nvs_flash.h"
+#include "protocol_examples_common.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "openthread/platform/radio.h"
@@ -255,6 +256,11 @@ void app_main(void)
 #if CONFIG_OPENTHREAD_BR_START_WEB
     esp_br_web_set_safe_mode(health_monitor_is_safe_mode());
 #endif
+
+    if (health_monitor_is_safe_mode()) {
+        ESP_LOGW(TAG, "Safe mode: starting Ethernet for web UI access");
+        ESP_ERROR_CHECK(example_connect());
+    }
 
     if (health_monitor_should_start_thread()) {
         launch_openthread_border_router(&openthread_config, &rcp_update_config);
